@@ -26,7 +26,7 @@ No YouTube long-form. Every cost center has a free/cheap default provider.
 ## Provider matrix (all pluggable via env)
 | Role | Default | Swaps |
 |---|---|---|
-| Script + image prompts | Claude Sonnet 4 | OpenAI · Qwen |
+| Script + image prompts | Claude Opus 4.6 | OpenAI · Qwen |
 | Classify + titles/hashtags | Qwen Plus (Dashscope) | Claude · OpenAI |
 | TTS narration | OpenAI TTS | Kokoro (local, free) · Dashscope CosyVoice · ElevenLabs |
 | Image generation | Wanx (Dashscope) | DALL-E 3 · Imagen 3 · Replicate FLUX · Local SDXL · Midjourney (manual) |

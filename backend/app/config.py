@@ -13,7 +13,7 @@ class Settings(BaseSettings):
 
     # ---- LLM keys ----
     anthropic_api_key: str = ""
-    claude_model: str = "claude-sonnet-4-20250514"
+    claude_model: str = "claude-opus-4-6"
 
     openai_api_key: str = ""
     openai_script_model: str = "gpt-4o"
