@@ -1,0 +1,276 @@
+"""Seed sample data so the UI demos without hitting real APIs.
+
+Usage:
+    cd backend
+    python -m app.seed                 # idempotent — skips rows already present
+    python -m app.seed --wipe          # blow away existing books + packages first
+
+Creates:
+  * 3 books with different genres (fantasy, scifi, romance)
+  * One BookSource row per book (NYT) so the queue looks real
+  * A fully-fleshed-out, APPROVED ContentPackage on the fantasy book —
+    hook portfolio, section-anchored script, scene prompts, narration,
+    word-level captions, per-platform meta. The Render Video button will
+    still need real API keys to run, but the rest of the review UI is
+    fully populated for demo.
+
+Nothing here calls Anthropic, OpenAI, Dashscope, NYT, or Firecrawl. Safe to
+run with empty API keys.
+"""
+from __future__ import annotations
+
+import argparse
+from datetime import datetime
+
+from app.db import SessionLocal, engine
+from app.models import Book, BookSource, ContentPackage
+from app.db import Base
+
+
+SAMPLES: list[dict] = [
+    {
+        "title": "The Ghost Orchid",
+        "author": "David Baldacci",
+        "isbn": "9781538765388",
+        "description": "A swamp-town mystery that refuses to stay buried.",
+        "cover_url": None,
+        "genre": "thriller",
+        "genre_confidence": 0.88,
+        "score": 2.0,
+        "source": "nyt",
+    },
+    {
+        "title": "Project Hail Mary",
+        "author": "Andy Weir",
+        "isbn": "9780593135204",
+        "description": "A lone astronaut has to save humanity from extinction.",
+        "cover_url": None,
+        "genre": "scifi",
+        "genre_confidence": 0.96,
+        "score": 2.0,
+        "source": "nyt",
+    },
+    {
+        "title": "The Invisible Life of Addie LaRue",
+        "author": "V. E. Schwab",
+        "isbn": "9780765387561",
+        "description": "A cursed immortal meets someone who remembers her.",
+        "cover_url": None,
+        "genre": "fantasy",
+        "genre_confidence": 0.93,
+        "score": 2.0,
+        "source": "nyt",
+    },
+]
+
+
+# A hand-authored package for the fantasy book, shaped exactly like the
+# staged-chain pipeline produces so every review-panel section renders.
+SAMPLE_PACKAGE = {
+    "hook_alternatives": [
+        {
+            "angle": "curiosity",
+            "text": "What would you do if everyone you loved forgot you the moment you turned your back?",
+        },
+        {
+            "angle": "fear",
+            "text": "One deal with the devil. Three hundred years of being invisible.",
+        },
+        {
+            "angle": "promise",
+            "text": "If you loved The Night Circus, Addie LaRue will haunt your reading list for months.",
+        },
+    ],
+    "chosen_hook_index": 1,
+    "script": (
+        "## HOOK\n"
+        "One deal with the devil. Three hundred years of being invisible.\n\n"
+        "## WORLD TEASE\n"
+        "1714. A French village. A young woman trades her soul for freedom — "
+        "and pays for it with something far crueler than death.\n\n"
+        "## EMOTIONAL PULL\n"
+        "Every person Addie meets forgets her the moment she leaves the room. "
+        "Until, one day in New York, a bookstore clerk says the impossible: "
+        "\"I remember you.\"\n\n"
+        "## SOCIAL PROOF\n"
+        "2.4 million copies sold. #1 New York Times bestseller. Goodreads 4.19.\n\n"
+        "## CTA\n"
+        "Link in bio to grab it."
+    ),
+    "narration": (
+        "One deal with the devil. [PAUSE] Three hundred years of being invisible. "
+        "Seventeen-fourteen. A French village. A young woman trades her soul for "
+        "freedom, and pays for it with something far crueler than death. Every "
+        "person Addie meets forgets her the moment she leaves the room. [PAUSE] "
+        "Until, one day in New York, a bookstore clerk says the impossible: I "
+        "remember you. Two-point-four million copies sold. Number one New York "
+        "Times bestseller. Link in bio to grab it."
+    ),
+    "section_word_counts": {
+        "hook": 10,
+        "world_tease": 26,
+        "emotional_pull": 33,
+        "social_proof": 12,
+        "cta": 6,
+    },
+    "visual_prompts": [
+        {
+            "section": "hook",
+            "prompt": "A single candle burning in an ornate mirror at midnight, "
+                      "reflected flame warping into a horned silhouette, moody "
+                      "oil-painting aesthetic, 9:16",
+            "focus": "devil's bargain tease",
+        },
+        {
+            "section": "world_tease",
+            "prompt": "A stone French village at dusk in early 1700s, wet "
+                      "cobblestones, warm windows, a solitary figure walking "
+                      "away down the lane, cinematic fog, 9:16",
+            "focus": "setting the 1714 world",
+        },
+        {
+            "section": "emotional_pull",
+            "prompt": "Silhouette of a woman from behind standing at a "
+                      "rain-slicked window, neon reflections of New York at "
+                      "night, wistful and lonely, 9:16",
+            "focus": "the curse of being forgotten",
+        },
+        {
+            "section": "social_proof",
+            "prompt": "A stack of hardcover books glowing warmly on a vintage "
+                      "wooden table, golden-hour light streaming through a "
+                      "library window, 9:16",
+            "focus": "bestseller status",
+        },
+        {
+            "section": "cta",
+            "prompt": "A leather-bound book open on a velvet chair with soft "
+                      "lamplight, vintage bookshop atmosphere, inviting and "
+                      "warm, 9:16",
+            "focus": "warm CTA",
+        },
+    ],
+    "captions": [
+        {"word": "One", "start": 0.10, "end": 0.35},
+        {"word": "deal", "start": 0.40, "end": 0.72},
+        {"word": "with", "start": 0.78, "end": 0.95},
+        {"word": "the", "start": 1.00, "end": 1.12},
+        {"word": "devil.", "start": 1.15, "end": 1.68},
+        {"word": "Three", "start": 2.10, "end": 2.50},
+        {"word": "hundred", "start": 2.55, "end": 3.05},
+        {"word": "years", "start": 3.10, "end": 3.45},
+        {"word": "of", "start": 3.48, "end": 3.62},
+        {"word": "being", "start": 3.65, "end": 3.95},
+        {"word": "invisible.", "start": 4.00, "end": 4.82},
+    ],
+    "titles": {
+        "tiktok": "She traded her soul for freedom. The price was being forgotten.",
+        "yt_shorts": "300 years invisible. One bookstore clerk. The Addie LaRue effect",
+        "ig_reels": "If you loved Night Circus you need this book on your TBR",
+        "threads": "Just finished The Invisible Life of Addie LaRue and I need to talk about it.",
+    },
+    "hashtags": {
+        "tiktok": ["#booktok", "#fantasybooktok", "#bookrecs", "#veschwab", "#addielarue"],
+        "yt_shorts": ["#shorts", "#booktok", "#fantasybooks", "#bookreview", "#veschwab"],
+        "ig_reels": ["#bookstagram", "#fantasyreads", "#booklover", "#addielarue"],
+        "threads": ["#books", "#bookrecs", "#fantasy", "#addielarue"],
+    },
+    "affiliate_amazon": None,      # Filled in when a real tag is configured
+    "affiliate_bookshop": None,
+    "regenerate_note": None,
+    "is_approved": True,
+}
+
+
+def run(wipe: bool = False) -> dict:
+    # Make sure tables exist so a clean clone can seed without running alembic.
+    Base.metadata.create_all(engine)
+
+    db = SessionLocal()
+    created_books = 0
+    created_sources = 0
+    created_packages = 0
+    try:
+        if wipe:
+            db.query(ContentPackage).delete()
+            db.query(BookSource).delete()
+            db.query(Book).delete()
+            db.commit()
+
+        for sample in SAMPLES:
+            book = db.query(Book).filter(Book.isbn == sample["isbn"]).first()
+            if book is None:
+                book = Book(
+                    title=sample["title"],
+                    author=sample["author"],
+                    isbn=sample["isbn"],
+                    description=sample["description"],
+                    cover_url=sample["cover_url"],
+                    genre=sample["genre"],
+                    genre_confidence=sample["genre_confidence"],
+                    score=sample["score"],
+                    status="discovered",
+                )
+                db.add(book)
+                db.flush()
+                created_books += 1
+
+            existing_source = (
+                db.query(BookSource)
+                .filter(BookSource.book_id == book.id, BookSource.source == sample["source"])
+                .first()
+            )
+            if existing_source is None:
+                db.add(
+                    BookSource(
+                        book_id=book.id,
+                        source=sample["source"],
+                        score=sample["score"],
+                    )
+                )
+                created_sources += 1
+
+            # Fantasy book gets the fleshed-out package.
+            if sample["genre"] == "fantasy":
+                has_package = (
+                    db.query(ContentPackage)
+                    .filter(ContentPackage.book_id == book.id)
+                    .count()
+                )
+                if has_package == 0:
+                    pkg = ContentPackage(
+                        book_id=book.id,
+                        revision_number=1,
+                        created_at=datetime.utcnow(),
+                        **SAMPLE_PACKAGE,
+                    )
+                    db.add(pkg)
+                    created_packages += 1
+                    book.status = "scheduled"
+
+        db.commit()
+    finally:
+        db.close()
+
+    return {
+        "books_created": created_books,
+        "book_sources_created": created_sources,
+        "packages_created": created_packages,
+    }
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Seed sample data for the UI.")
+    parser.add_argument(
+        "--wipe",
+        action="store_true",
+        help="Delete all books + sources + packages before seeding.",
+    )
+    args = parser.parse_args()
+    stats = run(wipe=args.wipe)
+    for k, v in stats.items():
+        print(f"  {k}: {v}")
+
+
+if __name__ == "__main__":
+    main()

@@ -47,7 +47,14 @@ npm run dev                          # http://localhost:3000
 # 4. Migrations (new terminal)
 cd db
 alembic upgrade head
+
+# 5. (Optional) Seed sample data so the UI demos without API keys
+cd ../backend
+python -m app.seed
 ```
+
+`app.seed` is idempotent; re-running it won't duplicate rows. Pass
+`--wipe` to start fresh.
 
 ## Provider defaults
 
