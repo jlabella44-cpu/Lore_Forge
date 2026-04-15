@@ -44,6 +44,11 @@ def generate_package(
 
     note = (payload or {}).get("note")
 
+    try:
+        cost.assert_under_budget()
+    except cost.BudgetExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+
     if asynchronous:
         job_id = jobs.enqueue(
             "generate",
@@ -85,6 +90,11 @@ def render_package(
     book = db.get(Book, package.book_id)
     if book is None:
         raise HTTPException(status_code=404, detail="Book not found")
+
+    try:
+        cost.assert_under_budget()
+    except cost.BudgetExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
 
     if asynchronous:
         job_id = jobs.enqueue(

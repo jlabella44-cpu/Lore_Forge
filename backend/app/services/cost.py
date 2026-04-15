@@ -178,6 +178,54 @@ def record_whisper(
 # rollups used by GET /analytics/cost
 # ---------------------------------------------------------------------------
 
+def spend_last_24h_cents() -> float:
+    """Rolling 24-hour sum, used by the daily-budget guardrail.
+
+    Separate from `summary_last_n_days(1)` so it can be called on every
+    enqueue without paying for the full grouping pass.
+    """
+    since = datetime.utcnow() - timedelta(hours=24)
+    db = _db_module.SessionLocal()
+    try:
+        rows = (
+            db.query(CostRecord.estimated_cents)
+            .filter(CostRecord.created_at >= since)
+            .all()
+        )
+        return round(sum(r[0] for r in rows), 2)
+    finally:
+        db.close()
+
+
+class BudgetExceeded(RuntimeError):
+    """Raised when the rolling 24h spend would push past the daily cap."""
+
+    def __init__(self, spent_cents: float, budget_cents: int) -> None:
+        self.spent_cents = spent_cents
+        self.budget_cents = budget_cents
+        super().__init__(
+            f"Daily cost budget exceeded: ${spent_cents / 100:.2f} spent "
+            f"in the last 24h, budget is ${budget_cents / 100:.2f}. "
+            "Raise COST_DAILY_BUDGET_CENTS or set it to 0 to disable."
+        )
+
+
+def assert_under_budget() -> None:
+    """Raise BudgetExceeded if the rolling 24h spend meets/exceeds the cap.
+
+    Routers call this before enqueueing expensive work. Budget ≤ 0 means
+    the guardrail is off (useful for dev / testing).
+    """
+    from app.config import settings
+
+    budget = settings.cost_daily_budget_cents
+    if budget is None or budget <= 0:
+        return
+    spent = spend_last_24h_cents()
+    if spent >= budget:
+        raise BudgetExceeded(spent, budget)
+
+
 def per_package_cents(package_id: int) -> float:
     db = _db_module.SessionLocal()
     try:
@@ -240,6 +288,11 @@ def summary_last_n_days(days: int = 30) -> dict:
                 )
             per_package.sort(key=lambda r: r["cents"], reverse=True)
 
+        from app.config import settings
+
+        budget = settings.cost_daily_budget_cents
+        today_cents = spend_last_24h_cents()
+
         return {
             "since": since.isoformat(),
             "days": days,
@@ -252,6 +305,15 @@ def summary_last_n_days(days: int = 30) -> dict:
             "by_provider": {k: round(v, 2) for k, v in by_provider.items()},
             "per_package": per_package,
             "record_count": len(rows),
+            "budget": {
+                "daily_cents": budget if budget and budget > 0 else None,
+                "today_cents": today_cents,
+                "remaining_cents": (
+                    max(0.0, budget - today_cents)
+                    if budget and budget > 0
+                    else None
+                ),
+            },
         }
     finally:
         db.close()

@@ -23,6 +23,12 @@ class Settings(BaseSettings):
     discovery_cron_day: str = "mon"
     discovery_cron_hour: int = 6
 
+    # ---- Cost guardrail ----
+    # Daily spending cap in cents. When the rolling 24h cost exceeds this,
+    # generate + render enqueue calls return 429 until the window clears.
+    # Set to 0 or a negative value to disable.
+    cost_daily_budget_cents: int = 500  # $5.00 default
+
     # ---- LLM keys ----
     anthropic_api_key: str = ""
     claude_model: str = "claude-opus-4-6"

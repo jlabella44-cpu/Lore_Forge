@@ -64,6 +64,7 @@ export default function SettingsPage() {
               </span>
             </div>
 
+            <BudgetCard budget={summary.budget} />
             <ProviderBreakdown byProvider={summary.by_provider} />
             <CallBreakdown byCallName={summary.by_call_name} />
             <PackageBreakdown packages={summary.per_package} />
@@ -71,6 +72,57 @@ export default function SettingsPage() {
         )}
       </section>
     </main>
+  );
+}
+
+function BudgetCard({
+  budget,
+}: {
+  budget: CostSummary["budget"];
+}) {
+  if (budget.daily_cents == null) {
+    return (
+      <div className="mb-6 rounded-md border border-white/5 bg-white/5 p-3 text-xs opacity-70">
+        Daily cost guardrail is off (COST_DAILY_BUDGET_CENTS ≤ 0).{" "}
+        Set it in <code>.env</code> to enforce a cap.
+      </div>
+    );
+  }
+
+  const pct = Math.min(
+    100,
+    Math.round((budget.today_cents / budget.daily_cents) * 100),
+  );
+  const barColor =
+    pct >= 100
+      ? "bg-red-500/70"
+      : pct >= 80
+        ? "bg-amber-500/70"
+        : "bg-green-500/70";
+
+  return (
+    <div className="mb-6 rounded-md border border-white/5 bg-white/5 p-4 text-sm">
+      <div className="mb-2 flex items-baseline justify-between">
+        <span className="text-xs opacity-60 uppercase tracking-wider">
+          Today (rolling 24h)
+        </span>
+        <span className="tabular-nums opacity-80">
+          {dollars(budget.today_cents)} / {dollars(budget.daily_cents)}
+        </span>
+      </div>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
+        <div
+          className={`h-full ${barColor} transition-all`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      {pct >= 100 && (
+        <p className="mt-2 text-xs text-red-200">
+          Budget exceeded — generate and render calls return 429 until the
+          rolling window clears.
+        </p>
+      )}
+    </div>
   );
 }
 

@@ -305,3 +305,95 @@ def test_cost_endpoint_accepts_days_param(client):
     # Out-of-range is rejected
     assert client.get("/analytics/cost?days=0").status_code == 422
     assert client.get("/analytics/cost?days=9999").status_code == 422
+
+
+# --- daily-budget guardrail -------------------------------------------------
+
+
+def test_assert_under_budget_passes_when_empty(client, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "cost_daily_budget_cents", 500)
+    cost.assert_under_budget()  # no records → 0 spent → passes
+
+
+def test_assert_under_budget_off_when_zero(client, monkeypatch):
+    """Setting the budget to 0 (or negative) disables the guardrail."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "cost_daily_budget_cents", 0)
+    # Drop a bunch of records — should still pass since cap is off.
+    cost.record_image(provider="wanx", model="wanx2.1-t2i-turbo", count=1000)
+    cost.assert_under_budget()
+
+
+def test_assert_under_budget_raises_when_exceeded(client, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "cost_daily_budget_cents", 50)  # 50 cents
+    # 3000 Wanx images at 2¢ each = 6000 cents, way past the cap.
+    cost.record_image(provider="wanx", model="wanx2.1-t2i-turbo", count=3000)
+
+    import pytest
+
+    with pytest.raises(cost.BudgetExceeded) as exc_info:
+        cost.assert_under_budget()
+    assert exc_info.value.budget_cents == 50
+    assert exc_info.value.spent_cents >= 50
+
+
+def test_generate_enqueue_returns_429_when_over_budget(client, monkeypatch):
+    """The generate router gates on assert_under_budget. Wire it up with a
+    real book + over-budget state and verify the 429."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "cost_daily_budget_cents", 10)
+
+    # Seed a book via the sync path so we have a book_id
+    from unittest.mock import patch
+
+    with (
+        patch(
+            "app.sources.nyt.fetch_bestsellers",
+            return_value=[{
+                "title": "x", "author": "y", "isbn": "9780000000001",
+                "description": "z", "cover_url": None, "source_rank": 1,
+            }],
+        ),
+        patch("app.services.llm.classify_genre", return_value=("fantasy", 0.9)),
+    ):
+        client.post("/discover/run")
+
+    book_id = client.get("/books").json()[0]["id"]
+
+    # Push spending over the cap
+    cost.record_image(provider="wanx", model="wanx2.1-t2i-turbo", count=10)  # 20¢
+
+    # Both sync and async paths should reject with 429
+    res_sync = client.post(f"/books/{book_id}/generate", json={})
+    assert res_sync.status_code == 429
+    assert "budget" in res_sync.json()["detail"].lower()
+
+    res_async = client.post(f"/books/{book_id}/generate?async=true", json={})
+    assert res_async.status_code == 429
+
+
+def test_summary_surfaces_budget_headroom(client, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "cost_daily_budget_cents", 200)
+    cost.record_image(provider="wanx", model="wanx2.1-t2i-turbo", count=25)  # 50¢
+
+    body = client.get("/analytics/cost").json()
+    assert body["budget"]["daily_cents"] == 200
+    assert abs(body["budget"]["today_cents"] - 50.0) < 0.01
+    assert abs(body["budget"]["remaining_cents"] - 150.0) < 0.01
+
+
+def test_summary_budget_block_empty_when_disabled(client, monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "cost_daily_budget_cents", 0)
+    body = client.get("/analytics/cost").json()
+    assert body["budget"]["daily_cents"] is None
+    assert body["budget"]["remaining_cents"] is None

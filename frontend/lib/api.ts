@@ -37,6 +37,11 @@ export type CostSummary = {
   since: string;
   days: number;
   record_count: number;
+  budget: {
+    daily_cents: number | null;
+    today_cents: number;
+    remaining_cents: number | null;
+  };
 };
 
 /** Format a cents value as "$X.XX". */
