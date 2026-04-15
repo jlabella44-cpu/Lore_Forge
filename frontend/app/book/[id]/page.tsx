@@ -126,6 +126,30 @@ export default function BookReviewPage({
     }
   };
 
+  const [publishing, setPublishing] = useState<string | null>(null);
+  const [published, setPublished] = useState<
+    Record<string, { external_id: string; published_at: string } | { error: string }>
+  >({});
+
+  const publish = async (packageId: number, platform: string) => {
+    setPublishing(platform);
+    setError(null);
+    try {
+      const res = await apiFetch<{
+        video_id: number;
+        platform: string;
+        external_id: string;
+        published_at: string;
+      }>(`/publish/${packageId}/${platform}`, { method: "POST" });
+      setPublished((prev) => ({ ...prev, [platform]: res }));
+      await refresh(); // book.status → "published"
+    } catch (e) {
+      setPublished((prev) => ({ ...prev, [platform]: { error: String(e) } }));
+    } finally {
+      setPublishing(null);
+    }
+  };
+
   if (!book) {
     return (
       <main className="mx-auto max-w-6xl p-8">
@@ -183,6 +207,9 @@ export default function BookReviewPage({
                 onRender={render}
                 rendering={rendering}
                 lastRender={lastRender}
+                onPublish={publish}
+                publishing={publishing}
+                published={published}
               />
             )}
             <RegenerateForm
@@ -207,6 +234,17 @@ export default function BookReviewPage({
 
 // ---------------------------------------------------------------------------
 
+const PUBLISH_TARGETS: Array<{ key: string; label: string }> = [
+  { key: "yt_shorts", label: "YouTube Shorts" },
+  { key: "tiktok", label: "TikTok" },
+  { key: "ig_reels", label: "Instagram Reels" },
+  { key: "threads", label: "Threads" },
+];
+
+type PublishStatus =
+  | { external_id: string; published_at: string }
+  | { error: string };
+
 function PackageView({
   pkg,
   onApprove,
@@ -214,6 +252,9 @@ function PackageView({
   onRender,
   rendering,
   lastRender,
+  onPublish,
+  publishing,
+  published,
 }: {
   pkg: Package;
   onApprove: (id: number) => void;
@@ -226,6 +267,9 @@ function PackageView({
     size_bytes: number;
     tone: string;
   } | null;
+  onPublish: (id: number, platform: string) => void;
+  publishing: string | null;
+  published: Record<string, PublishStatus>;
 }) {
   return (
     <div className="space-y-6">
@@ -267,11 +311,54 @@ function PackageView({
       </div>
 
       {lastRender && (
-        <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-4 text-sm">
-          <div className="mb-2 opacity-80">
+        <div className="space-y-3 rounded-lg border border-green-500/30 bg-green-500/5 p-4 text-sm">
+          <div className="opacity-80">
             Rendered {lastRender.duration_seconds.toFixed(1)}s · {(lastRender.size_bytes / 1_048_576).toFixed(1)} MB · tone={lastRender.tone}
           </div>
-          <code className="text-xs opacity-70">{lastRender.file_path}</code>
+          <code className="block text-xs opacity-70">{lastRender.file_path}</code>
+
+          <div className="border-t border-green-500/20 pt-3">
+            <div className="mb-2 text-xs font-medium opacity-70">Publish (manual-approve gate)</div>
+            <div className="flex flex-wrap gap-2">
+              {PUBLISH_TARGETS.map(({ key, label }) => {
+                const status = published[key];
+                const isPublishing = publishing === key;
+                const succeeded = status && !("error" in status);
+                return (
+                  <div key={key} className="flex flex-col gap-1">
+                    <button
+                      onClick={() => onPublish(pkg.id, key)}
+                      disabled={isPublishing || !!succeeded}
+                      className={`rounded-md px-3 py-1.5 text-xs disabled:opacity-50 ${
+                        succeeded
+                          ? "bg-green-500/30 text-green-100"
+                          : "bg-white/10 hover:bg-white/20"
+                      }`}
+                    >
+                      {succeeded
+                        ? `✓ ${label}`
+                        : isPublishing
+                          ? `Uploading to ${label}…`
+                          : label}
+                    </button>
+                    {status && "error" in status && (
+                      <div
+                        className="max-w-xs truncate text-xs text-red-200"
+                        title={status.error}
+                      >
+                        {status.error}
+                      </div>
+                    )}
+                    {succeeded && (
+                      <div className="text-xs opacity-60">
+                        id: {status.external_id}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </div>
       )}
 
