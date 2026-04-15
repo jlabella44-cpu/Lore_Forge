@@ -5,12 +5,30 @@ import { useEffect, useState } from "react";
 
 import { apiFetch } from "@/lib/api";
 
+type HookAlternative = { angle: string; text: string };
+
+type Scene = {
+  section: string;
+  prompt: string;
+  focus: string;
+};
+
+type CaptionWord = {
+  word: string;
+  start: number;
+  end: number;
+};
+
 type Package = {
   id: number;
   revision_number: number;
   script: string;
-  visual_prompts: string[];
   narration: string;
+  hook_alternatives: HookAlternative[] | null;
+  chosen_hook_index: number | null;
+  visual_prompts: Scene[] | null;
+  section_word_counts: Record<string, number> | null;
+  captions: CaptionWord[] | null;
   titles: Record<string, string>;
   hashtags: Record<string, string[]>;
   affiliate_amazon: string | null;
@@ -18,6 +36,20 @@ type Package = {
   regenerate_note: string | null;
   is_approved: boolean;
   created_at: string | null;
+};
+
+const SECTION_LABEL: Record<string, string> = {
+  hook: "Hook",
+  world_tease: "World tease",
+  emotional_pull: "Emotional pull",
+  social_proof: "Social proof",
+  cta: "CTA",
+};
+
+const ANGLE_LABEL: Record<string, string> = {
+  curiosity: "Curiosity",
+  fear: "Fear",
+  promise: "Promise",
 };
 
 type BookDetail = {
@@ -366,18 +398,58 @@ function PackageView({
         <p className="whitespace-pre-wrap text-sm leading-relaxed">{pkg.script}</p>
       </Section>
 
-      <Section title={`Image prompts (${pkg.visual_prompts.length})`}>
+      {pkg.hook_alternatives && pkg.hook_alternatives.length > 0 && (
+        <Section title="Hook portfolio">
+          <ul className="space-y-2">
+            {pkg.hook_alternatives.map((h, i) => {
+              const isChosen = i === pkg.chosen_hook_index;
+              return (
+                <li
+                  key={i}
+                  className={`flex items-start justify-between gap-3 rounded-md border p-3 ${
+                    isChosen
+                      ? "border-green-500/40 bg-green-500/5"
+                      : "border-white/5 bg-white/5"
+                  }`}
+                >
+                  <div className="flex-1 text-sm">
+                    <span className="mr-2 rounded-full bg-white/10 px-2 py-0.5 text-xs uppercase tracking-wider opacity-70">
+                      {ANGLE_LABEL[h.angle] ?? h.angle}
+                    </span>
+                    {isChosen && (
+                      <span className="mr-2 rounded-full bg-green-500/20 px-2 py-0.5 text-xs text-green-200">
+                        chosen
+                      </span>
+                    )}
+                    <span>{h.text}</span>
+                  </div>
+                  <CopyButton text={h.text} />
+                </li>
+              );
+            })}
+          </ul>
+        </Section>
+      )}
+
+      <Section
+        title={`Image prompts (${pkg.visual_prompts?.length ?? 0})`}
+      >
         <div className="space-y-3">
-          {pkg.visual_prompts.map((prompt, i) => (
+          {(pkg.visual_prompts ?? []).map((scene, i) => (
             <div
               key={i}
               className="flex items-start justify-between gap-3 rounded-md border border-white/5 bg-white/5 p-3"
             >
               <div className="flex-1 text-sm">
-                <span className="mr-2 opacity-60">#{i + 1}</span>
-                {prompt}
+                <div className="mb-1 text-xs opacity-60">
+                  <span className="mr-2 rounded-full bg-white/10 px-2 py-0.5">
+                    {SECTION_LABEL[scene.section] ?? scene.section}
+                  </span>
+                  {scene.focus && <span>{scene.focus}</span>}
+                </div>
+                {scene.prompt}
               </div>
-              <CopyButton text={prompt} />
+              <CopyButton text={scene.prompt} />
             </div>
           ))}
         </div>
@@ -387,6 +459,9 @@ function PackageView({
         <p className="whitespace-pre-wrap text-sm leading-relaxed">
           {pkg.narration}
         </p>
+        {pkg.captions && pkg.captions.length > 0 && (
+          <CaptionsPreview captions={pkg.captions} />
+        )}
       </Section>
 
       <Section title="Per-platform meta">
@@ -468,6 +543,53 @@ function AffiliateRow({ label, url }: { label: string; url: string }) {
       <span className="w-24 text-xs opacity-60">{label}</span>
       <code className="flex-1 truncate text-xs">{url}</code>
       <CopyButton text={url} />
+    </div>
+  );
+}
+
+function CaptionsPreview({ captions }: { captions: CaptionWord[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const durationSeconds = captions[captions.length - 1]?.end ?? 0;
+  const preview = captions
+    .slice(0, 14)
+    .map((c) => c.word)
+    .join(" ");
+  const full = captions.map((c) => `${c.word}`).join(" ");
+
+  return (
+    <div className="mt-4 rounded-md border border-white/5 bg-white/5 p-3 text-xs">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="opacity-70">
+          Captions — {captions.length} words,{" "}
+          {durationSeconds.toFixed(1)}s (word-level, Whisper)
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="rounded-md bg-white/10 px-2 py-1 hover:bg-white/20"
+          >
+            {expanded ? "Collapse" : "Show all"}
+          </button>
+          <CopyButton text={full} />
+        </div>
+      </div>
+      {expanded ? (
+        <ol className="max-h-64 space-y-0.5 overflow-y-auto font-mono text-[11px] opacity-80">
+          {captions.map((c, i) => (
+            <li key={i}>
+              <span className="inline-block w-16 opacity-60 tabular-nums">
+                {c.start.toFixed(2)}s
+              </span>
+              {c.word}
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="italic opacity-75">
+          {preview}
+          {captions.length > 14 ? "…" : ""}
+        </p>
+      )}
     </div>
   );
 }
