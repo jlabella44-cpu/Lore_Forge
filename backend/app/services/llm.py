@@ -1,18 +1,18 @@
 """Pluggable LLM layer.
 
-Two roles used by the pipeline:
+Four functions drive the staged generation pipeline. The routing concept is
+unchanged from Phase 1: SCRIPT_PROVIDER (default Claude) handles quality-
+sensitive creative work; META_PROVIDER (default Qwen on Dashscope) handles
+cheap, formulaic tasks.
 
-- SCRIPT_PROVIDER: writes the 90-sec script + image prompts + narration.
-  Defaults to Claude Opus 4.6 (best creative voice consistency).
-- META_PROVIDER: classifies genre and generates per-platform titles/hashtags.
-  Defaults to Qwen on Dashscope (cheapest competent option for formulaic work).
+    generate_hooks(...)         → SCRIPT_PROVIDER  (3 hook candidates + pick)
+    generate_script(...)        → SCRIPT_PROVIDER  (script + narration)
+    generate_scene_prompts(...) → SCRIPT_PROVIDER  (5 section-anchored prompts)
+    generate_platform_meta(...) → META_PROVIDER    (titles + hashtags)
 
-Providers: `claude` | `openai` | `qwen`. Selected via env vars
-`SCRIPT_PROVIDER` and `META_PROVIDER`.
-
-Claude path uses the official Anthropic SDK with tool-use for structured
-output. OpenAI and Qwen paths share the OpenAI SDK — Qwen talks to Dashscope's
-OpenAI-compatible endpoint via a different `base_url`.
+Sections are the canonical vocabulary used across the schema, the script
+headers, the image prompts, and the Remotion template:
+    hook, world_tease, emotional_pull, social_proof, cta
 """
 from __future__ import annotations
 
@@ -22,49 +22,96 @@ from typing import Any
 
 from app.config import settings
 
+SECTIONS: list[str] = [
+    "hook",
+    "world_tease",
+    "emotional_pull",
+    "social_proof",
+    "cta",
+]
+
+# Markdown header emitted for each section in the `script` field.
+SECTION_HEADERS: dict[str, str] = {
+    "hook": "## HOOK",
+    "world_tease": "## WORLD TEASE",
+    "emotional_pull": "## EMOTIONAL PULL",
+    "social_proof": "## SOCIAL PROOF",
+    "cta": "## CTA",
+}
+
+HOOK_ANGLES: list[str] = ["curiosity", "fear", "promise"]
+
 # ---------------------------------------------------------------------------
-# System prompts. Kept stable + deterministic so they can be prompt-cached on
-# Claude. No timestamps, UUIDs, or per-request interpolation here.
+# System prompts — stable strings so Claude's prompt cache can pick them up.
 # ---------------------------------------------------------------------------
 
-_GENRE_SYSTEM = """\
-You classify books into one of these genres:
-fantasy, scifi, romance, thriller, historical_fiction, other.
+_HOOKS_SYSTEM = """\
+You write single-sentence TikTok/Shorts hooks for book trailer videos.
 
-Decide based on the title, author, and description alone. Call the
-`record_genre` tool exactly once with the chosen genre and a confidence
-score between 0.0 and 1.0.
+A great hook stops the scroll in under 0.8 seconds. Generate exactly three
+candidates, each using a *different* emotional angle:
+
+  curiosity   — a specific unresolved question the book answers
+  fear        — a visceral stake or dread the book taps into
+  promise     — an "if you loved X you'll love this" identification line
+
+Each hook must be ONE sentence, under 20 words, no preamble, no hashtags.
+Then pick the one you think will perform best for this book's genre and
+audience, and explain why in at most one sentence.
+
+Return strictly via the `record_hooks` tool.
 """
 
 _SCRIPT_SYSTEM = """\
 You write spoiler-free 90-second book trailer scripts for short-form social
 video (TikTok, YouTube Shorts, Instagram Reels).
 
-Every script follows this five-section arc:
+Use the HOOK I give you **verbatim** as the first line of the script, under
+a `## HOOK` header. Then structure the rest of the script in four more
+sections, each with a markdown header:
 
-  HOOK            1 punchy sentence. Intrigue, not plot.
-  WORLD TEASE     Setting and stakes. No character spoilers.
-  EMOTIONAL PULL  Why readers can't put the book down.
-  SOCIAL PROOF    One concrete stat: bestseller rank, BookTok views,
-                  Goodreads rating, or similar.
-  CTA             "Link in bio to grab it." or a close variant.
+  ## WORLD TEASE       — Setting + stakes. No character spoilers.
+  ## EMOTIONAL PULL    — Why readers can't put the book down.
+  ## SOCIAL PROOF      — ONE concrete stat: bestseller rank, BookTok views,
+                         Goodreads rating, or similar.
+  ## CTA               — "Link in bio to grab it." or a close variant.
 
 Tone by genre:
-  fantasy, thriller            dark, cinematic, slow dramatic cadence
-  scifi                        hype, energetic, fast pace
-  romance, historical_fiction  warm, conversational, textured
+  fantasy, thriller             dark, cinematic, slow dramatic cadence
+  scifi                         hype, energetic, fast pace
+  romance, historical_fiction   warm, conversational, textured
 
 Constraints:
-  - ~150 words total (reads in ~90 seconds).
-  - No markdown. No bracketed stage directions in the script text itself.
-  - The `narration` field mirrors the spoken words with [PAUSE] markers
-    inserted for dramatic beats. TTS reads this field verbatim — do not
-    include any other annotations.
-  - Produce 4-5 visual prompts targeting 9:16 vertical framing that work in
-    Midjourney, Wanx, or DALL-E. No character faces — focus on settings,
-    objects, atmospheres, moods.
+  - ~150 words total across all five sections (reads in ~90 seconds).
+  - No stage directions in the script text itself.
+  - Also emit `narration`: the same content as prose (no headers), with
+    `[PAUSE]` markers inserted for dramatic beats. TTS voices this field
+    verbatim.
+  - Also emit `section_word_counts`: an integer word count per section for
+    the NARRATION text. Must have all five keys: hook, world_tease,
+    emotional_pull, social_proof, cta.
 
-Output strictly via the `record_package` tool.
+Return strictly via the `record_script` tool.
+"""
+
+_SCENE_PROMPTS_SYSTEM = """\
+For each of the 5 script sections the user gives you, write one
+Midjourney/Wanx-style image prompt that *visually supports that section's
+content*. Focus on settings, moods, atmospheres, objects — **no character
+faces** (likeness issues). All prompts target 9:16 vertical framing.
+
+Also attach a short `focus` label per scene describing what the image needs
+to communicate (e.g. "stakes of the world", "emotional climax tease",
+"social proof: bestseller list").
+
+Return exactly 5 scenes, in this section order:
+  1. hook
+  2. world_tease
+  3. emotional_pull
+  4. social_proof
+  5. cta
+
+Return strictly via the `record_scene_prompts` tool.
 """
 
 _META_SYSTEM = """\
@@ -73,39 +120,42 @@ per-platform titles and hashtags for TikTok, YouTube Shorts, Instagram
 Reels, and Threads.
 
 Rules:
-  TikTok      title <= 80 chars. 5-8 hashtags. Include #booktok.
+  TikTok      title <= 80 chars.  5-8 hashtags. Include #booktok.
   YT Shorts   title <= 100 chars. 5-8 hashtags. Include #shorts and #booktok.
   IG Reels    title <= 100 chars. 5-8 hashtags. Include #bookstagram.
-  Threads     a 1-2 line teaser, <= 500 chars total. 3-5 hashtags.
+  Threads     a 1-2 line teaser, <= 500 chars. 3-5 hashtags.
 
 Titles should be punchy and emotional, aligned with the script's hook.
-Hashtags should mix niche tags (#fantasybooktok, #darkfantasy) with broader
-reach tags (#booktok, #bookrecs).
+Hashtags mix niche (#fantasybooktok, #darkfantasy) with broader reach
+(#booktok, #bookrecs).
 
-Output strictly via the `record_meta` tool.
+Return strictly via the `record_meta` tool.
 """
 
 # ---------------------------------------------------------------------------
-# JSON schemas shared by the Claude tool path and the OpenAI/Qwen JSON path.
+# Tool schemas
 # ---------------------------------------------------------------------------
 
-_GENRE_SCHEMA: dict[str, Any] = {
+_HOOKS_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "genre": {
-            "type": "string",
-            "enum": [
-                "fantasy",
-                "scifi",
-                "romance",
-                "thriller",
-                "historical_fiction",
-                "other",
-            ],
+        "alternatives": {
+            "type": "array",
+            "minItems": 3,
+            "maxItems": 3,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "angle": {"type": "string", "enum": HOOK_ANGLES},
+                    "text": {"type": "string"},
+                },
+                "required": ["angle", "text"],
+            },
         },
-        "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "chosen_index": {"type": "integer", "minimum": 0, "maximum": 2},
+        "rationale": {"type": "string"},
     },
-    "required": ["genre", "confidence"],
+    "required": ["alternatives", "chosen_index", "rationale"],
     "additionalProperties": False,
 }
 
@@ -114,20 +164,42 @@ _SCRIPT_SCHEMA: dict[str, Any] = {
     "properties": {
         "script": {
             "type": "string",
-            "description": "~150 words, five-section arc, no markdown.",
-        },
-        "visual_prompts": {
-            "type": "array",
-            "items": {"type": "string"},
-            "minItems": 4,
-            "maxItems": 5,
+            "description": "Full script with `## HOOK`, `## WORLD TEASE`, ... headers.",
         },
         "narration": {
             "type": "string",
-            "description": "TTS-ready plain text, may include [PAUSE] markers.",
+            "description": "TTS-ready prose. No markdown headers; may contain [PAUSE] marks.",
+        },
+        "section_word_counts": {
+            "type": "object",
+            "properties": {s: {"type": "integer", "minimum": 0} for s in SECTIONS},
+            "required": SECTIONS,
+            "additionalProperties": False,
         },
     },
-    "required": ["script", "visual_prompts", "narration"],
+    "required": ["script", "narration", "section_word_counts"],
+    "additionalProperties": False,
+}
+
+_SCENE_PROMPTS_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "scenes": {
+            "type": "array",
+            "minItems": 5,
+            "maxItems": 5,
+            "items": {
+                "type": "object",
+                "properties": {
+                    "section": {"type": "string", "enum": SECTIONS},
+                    "prompt": {"type": "string"},
+                    "focus": {"type": "string"},
+                },
+                "required": ["section", "prompt", "focus"],
+            },
+        },
+    },
+    "required": ["scenes"],
     "additionalProperties": False,
 }
 
@@ -163,8 +235,7 @@ _META_SCHEMA: dict[str, Any] = {
 
 
 # ---------------------------------------------------------------------------
-# Client singletons (lazy — avoids importing SDKs and reading keys at module
-# load, which keeps tests and `uvicorn --reload` happy).
+# Clients
 # ---------------------------------------------------------------------------
 
 @lru_cache(maxsize=1)
@@ -183,7 +254,6 @@ def _openai_client():
 
 @lru_cache(maxsize=1)
 def _qwen_client():
-    # Dashscope exposes an OpenAI-compatible endpoint for Qwen chat models.
     from openai import OpenAI
 
     return OpenAI(
@@ -193,11 +263,10 @@ def _qwen_client():
 
 
 # ---------------------------------------------------------------------------
-# Per-provider call helpers.
+# Per-provider call helpers
 # ---------------------------------------------------------------------------
 
 def _claude_call(system: str, user: str, tool_name: str, schema: dict) -> dict:
-    """Force Claude to emit one tool_use block with the requested shape."""
     tool = {
         "name": tool_name,
         "description": f"Record the {tool_name.replace('_', ' ')} result.",
@@ -207,11 +276,7 @@ def _claude_call(system: str, user: str, tool_name: str, schema: dict) -> dict:
         model=settings.claude_model,
         max_tokens=4096,
         system=[
-            {
-                "type": "text",
-                "text": system,
-                "cache_control": {"type": "ephemeral"},
-            }
+            {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}
         ],
         tools=[tool],
         tool_choice={"type": "tool", "name": tool_name},
@@ -219,8 +284,6 @@ def _claude_call(system: str, user: str, tool_name: str, schema: dict) -> dict:
     )
     for block in resp.content:
         if block.type == "tool_use":
-            # block.input is a parsed dict from the SDK; copy to detach from
-            # the SDK's internal typing.
             return dict(block.input)
     raise RuntimeError("Claude returned no tool_use block")
 
@@ -228,7 +291,6 @@ def _claude_call(system: str, user: str, tool_name: str, schema: dict) -> dict:
 def _openai_compat_call(
     client, model: str, system: str, user: str, schema: dict
 ) -> dict:
-    """Shared path for OpenAI and Qwen-via-Dashscope."""
     system_with_schema = (
         f"{system}\n\n"
         "Return a single JSON object that strictly matches this schema:\n"
@@ -253,79 +315,187 @@ def _dispatch(
     tool_name: str,
     schema: dict,
 ) -> dict:
-    """role = 'script' (SCRIPT_PROVIDER) | 'meta' (META_PROVIDER)."""
+    """role: 'script' → SCRIPT_PROVIDER, 'meta' → META_PROVIDER."""
     provider = settings.script_provider if role == "script" else settings.meta_provider
 
     if provider == "claude":
         return _claude_call(system, user, tool_name, schema)
     if provider == "openai":
         model = (
-            settings.openai_script_model if role == "script" else settings.openai_meta_model
+            settings.openai_script_model
+            if role == "script"
+            else settings.openai_meta_model
         )
         return _openai_compat_call(_openai_client(), model, system, user, schema)
     if provider == "qwen":
-        return _openai_compat_call(_qwen_client(), settings.qwen_model, system, user, schema)
+        return _openai_compat_call(
+            _qwen_client(), settings.qwen_model, system, user, schema
+        )
     raise ValueError(f"Unknown LLM provider: {provider!r}")
 
 
 # ---------------------------------------------------------------------------
-# Public API — called from routers and Phase 2 workflows.
+# Public API — Phase 2+ staged chain
 # ---------------------------------------------------------------------------
 
 def classify_genre(
-    title: str,
-    author: str,
-    description: str | None,
+    title: str, author: str, description: str | None
 ) -> tuple[str, float]:
-    """Return (genre, confidence 0..1).
-
-    Genres: fantasy | scifi | romance | thriller | historical_fiction | other.
-    Routes to META_PROVIDER (Qwen by default).
-    """
+    """Classify a book into one of our six genres. Routes to META_PROVIDER."""
+    schema = {
+        "type": "object",
+        "properties": {
+            "genre": {
+                "type": "string",
+                "enum": [
+                    "fantasy",
+                    "scifi",
+                    "romance",
+                    "thriller",
+                    "historical_fiction",
+                    "other",
+                ],
+            },
+            "confidence": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        },
+        "required": ["genre", "confidence"],
+        "additionalProperties": False,
+    }
+    system = (
+        "You classify books into one of these genres:\n"
+        "fantasy, scifi, romance, thriller, historical_fiction, other.\n"
+        "Decide based on the title, author, and description alone. "
+        "Call the `record_genre` tool exactly once."
+    )
     user = (
         f"Title: {title}\n"
         f"Author: {author}\n"
         f"Description: {description or '(none provided)'}"
     )
-    out = _dispatch("meta", _GENRE_SYSTEM, user, "record_genre", _GENRE_SCHEMA)
+    out = _dispatch("meta", system, user, "record_genre", schema)
     return out["genre"], float(out["confidence"])
 
 
-def generate_script_package(
+def generate_hooks(
     *,
     title: str,
     author: str,
     description: str | None,
     genre: str,
+) -> dict:
+    """Stage 1. Returns:
+        {alternatives: [{angle, text}] * 3, chosen_index: int, rationale: str}
+    Routes to SCRIPT_PROVIDER (Claude by default — hook quality is the
+    whole game).
+    """
+    user = (
+        f"Book: {title} by {author}\n"
+        f"Genre: {genre}\n"
+        f"Description: {description or '(none provided)'}"
+    )
+    out = _dispatch("script", _HOOKS_SYSTEM, user, "record_hooks", _HOOKS_SCHEMA)
+    # Clamp the index in case the model hallucinates past the array length.
+    out["chosen_index"] = max(0, min(2, int(out["chosen_index"])))
+    return out
+
+
+def generate_script(
+    *,
+    title: str,
+    author: str,
+    description: str | None,
+    genre: str,
+    chosen_hook: str,
     note: str | None = None,
 ) -> dict:
-    """Generate a 90-sec script + 4-5 image prompts + narration.
-
-    Returns: {"script": str, "visual_prompts": list[str], "narration": str}.
-    Routes to SCRIPT_PROVIDER (Claude by default).
+    """Stage 2. Returns:
+        {script: str (with markdown headers), narration: str,
+         section_word_counts: {hook, world_tease, emotional_pull, social_proof, cta}}
     """
     lines = [
         f"Book: {title} by {author}",
         f"Genre: {genre}",
         f"Description: {description or '(none provided)'}",
+        "",
+        f"HOOK (use verbatim as the first line of the script): {chosen_hook}",
     ]
     if note:
+        lines.append("")
         lines.append(
-            "\nRevision note — please address this in the new draft:\n" + note
+            "Revision note — please address this in the new draft:\n" + note
         )
     user = "\n".join(lines)
-    return _dispatch("script", _SCRIPT_SYSTEM, user, "record_package", _SCRIPT_SCHEMA)
+    return _dispatch(
+        "script", _SCRIPT_SYSTEM, user, "record_script", _SCRIPT_SCHEMA
+    )
+
+
+def generate_scene_prompts(
+    *,
+    script: str,
+    genre: str,
+) -> dict:
+    """Stage 3. Takes the section-headered script from Stage 2 and returns:
+        {scenes: [{section, prompt, focus}] × 5}
+    """
+    sections = script_by_section(script)
+    body = "\n\n".join(
+        f"[{s.upper()}]\n{sections.get(s, '').strip()}" for s in SECTIONS
+    )
+    user = f"Genre: {genre}\n\nScript sections:\n{body}"
+    return _dispatch(
+        "script",
+        _SCENE_PROMPTS_SYSTEM,
+        user,
+        "record_scene_prompts",
+        _SCENE_PROMPTS_SCHEMA,
+    )
 
 
 def generate_platform_meta(*, script: str, genre: str) -> dict:
-    """Generate per-platform titles + hashtags.
-
-    Returns:
-        {
-            "titles":   {"tiktok", "yt_shorts", "ig_reels", "threads"},
-            "hashtags": {"tiktok", "yt_shorts", "ig_reels", "threads"},
-        }
-    Routes to META_PROVIDER (Qwen by default).
-    """
+    """Stage 4. Returns {titles: {...}, hashtags: {...}}."""
     user = f"Genre: {genre}\n\nScript:\n{script}"
     return _dispatch("meta", _META_SYSTEM, user, "record_meta", _META_SCHEMA)
+
+
+# ---------------------------------------------------------------------------
+# Script parsing
+# ---------------------------------------------------------------------------
+
+def script_by_section(script: str) -> dict[str, str]:
+    """Split a section-headered script into a dict keyed by section name.
+
+    Lenient about header casing and extra whitespace. Missing sections
+    return empty strings so downstream code can assume all five keys exist.
+    """
+    out = {s: "" for s in SECTIONS}
+    if not script:
+        return out
+
+    # Build a reverse lookup from normalized header text → section name
+    norm_to_section = {
+        _normalize_header(h): s for s, h in SECTION_HEADERS.items()
+    }
+
+    current: str | None = None
+    buf: list[str] = []
+    for line in script.splitlines():
+        stripped = line.strip()
+        norm = _normalize_header(stripped)
+        if norm in norm_to_section:
+            if current is not None:
+                out[current] = "\n".join(buf).strip()
+            current = norm_to_section[norm]
+            buf = []
+        elif current is not None:
+            buf.append(line)
+    if current is not None:
+        out[current] = "\n".join(buf).strip()
+
+    return out
+
+
+def _normalize_header(s: str) -> str:
+    # "## HOOK" → "hook"; tolerant to `# HOOK`, `### Hook`, `## Hook:` etc.
+    s = s.strip().lstrip("#").strip().rstrip(":").strip().lower()
+    return s

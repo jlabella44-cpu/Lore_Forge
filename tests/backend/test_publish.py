@@ -22,10 +22,31 @@ def rendered_package(client, tmp_path, monkeypatch):
             "source_rank": 1,
         }
     ]
+    hooks_pkg = {
+        "alternatives": [
+            {"angle": "curiosity", "text": "a"},
+            {"angle": "fear", "text": "b"},
+            {"angle": "promise", "text": "c"},
+        ],
+        "chosen_index": 0,
+        "rationale": "",
+    }
     script_pkg = {
-        "script": "HOOK. WORLD TEASE. EMOTIONAL PULL. SOCIAL PROOF. CTA.",
-        "visual_prompts": ["p1", "p2", "p3", "p4"],
+        "script": (
+            "## HOOK\na\n\n## WORLD TEASE\nw\n\n## EMOTIONAL PULL\ne\n\n"
+            "## SOCIAL PROOF\ns\n\n## CTA\nc"
+        ),
         "narration": "In a forgotten forest...",
+        "section_word_counts": {
+            "hook": 1, "world_tease": 1, "emotional_pull": 1,
+            "social_proof": 1, "cta": 1,
+        },
+    }
+    scene_pkg = {
+        "scenes": [
+            {"section": s, "prompt": f"p_{s}", "focus": "f"}
+            for s in ["hook", "world_tease", "emotional_pull", "social_proof", "cta"]
+        ]
     }
     meta_pkg = {
         "titles": {
@@ -50,7 +71,9 @@ def rendered_package(client, tmp_path, monkeypatch):
 
     book_id = client.get("/books").json()[0]["id"]
     with (
-        patch("app.services.llm.generate_script_package", return_value=script_pkg),
+        patch("app.services.llm.generate_hooks", return_value=hooks_pkg),
+        patch("app.services.llm.generate_script", return_value=script_pkg),
+        patch("app.services.llm.generate_scene_prompts", return_value=scene_pkg),
         patch("app.services.llm.generate_platform_meta", return_value=meta_pkg),
     ):
         gen = client.post(f"/books/{book_id}/generate", json={}).json()

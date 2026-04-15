@@ -89,15 +89,37 @@ def approved_package(client, tmp_path, monkeypatch):
             "source_rank": 1,
         }
     ]
-    script_pkg = {
-        "script": "HOOK. WORLD TEASE. EMOTIONAL PULL. SOCIAL PROOF. CTA.",
-        "visual_prompts": [
-            "a moonlit circus tent",
-            "silhouettes in a mirror maze",
-            "a spiraling staircase of stars",
-            "a raven on a velvet rope",
+    hooks = {
+        "alternatives": [
+            {"angle": "curiosity", "text": "What if magic arrived overnight?"},
+            {"angle": "fear", "text": "The circus vanishes at dawn."},
+            {"angle": "promise", "text": "If you loved The Prestige, here's your next."},
         ],
+        "chosen_index": 0,
+        "rationale": "Curiosity fits fantasy.",
+    }
+    script_pkg = {
+        "script": (
+            "## HOOK\nWhat if magic arrived overnight?\n\n"
+            "## WORLD TEASE\nA circus that only opens at dusk.\n\n"
+            "## EMOTIONAL PULL\nYou will want to live inside it.\n\n"
+            "## SOCIAL PROOF\nMillions of copies sold.\n\n"
+            "## CTA\nLink in bio."
+        ),
         "narration": "In a circus [PAUSE] that arrives without warning...",
+        "section_word_counts": {
+            "hook": 5, "world_tease": 7, "emotional_pull": 7,
+            "social_proof": 4, "cta": 3,
+        },
+    }
+    scene_pkg = {
+        "scenes": [
+            {"section": "hook", "prompt": "a moonlit circus tent", "focus": "stops scroll"},
+            {"section": "world_tease", "prompt": "silhouettes in a mirror maze", "focus": "world"},
+            {"section": "emotional_pull", "prompt": "a staircase of stars", "focus": "awe"},
+            {"section": "social_proof", "prompt": "a stack of hardcovers", "focus": "sales"},
+            {"section": "cta", "prompt": "a raven on a velvet rope", "focus": "cta"},
+        ],
     }
     meta_pkg = {
         "titles": {"tiktok": "t", "yt_shorts": "y", "ig_reels": "i", "threads": "th"},
@@ -117,7 +139,9 @@ def approved_package(client, tmp_path, monkeypatch):
 
     book_id = client.get("/books").json()[0]["id"]
     with (
-        patch("app.services.llm.generate_script_package", return_value=script_pkg),
+        patch("app.services.llm.generate_hooks", return_value=hooks),
+        patch("app.services.llm.generate_script", return_value=script_pkg),
+        patch("app.services.llm.generate_scene_prompts", return_value=scene_pkg),
         patch("app.services.llm.generate_platform_meta", return_value=meta_pkg),
     ):
         gen = client.post(f"/books/{book_id}/generate", json={}).json()
@@ -196,7 +220,10 @@ def test_render_orchestrates_tts_images_and_remotion(client, approved_package):
     props = json.loads(props_path.read_text())
     assert props["tone"] == "dark"
     assert props["title"] == "Night Circus"
-    assert len(props["images"]) == 4
+    # 5 section-anchored scenes (1 per script section); Commit 3 rewrites the
+    # renderer to emit `scenes` with timing; for now props still carries the
+    # flat `images` list that Commit 2's renderer produces.
+    assert len(props["images"]) == 5
     assert props["audio"].endswith("narration.mp3")
     assert props["durationSeconds"] == 58.2
 
@@ -204,7 +231,7 @@ def test_render_orchestrates_tts_images_and_remotion(client, approved_package):
     work = tmp / "renders" / str(pid)
     assert (work / "narration.mp3").exists()
     assert (work / "scene_01.png").exists()
-    assert (work / "scene_04.png").exists()
+    assert (work / "scene_05.png").exists()
     assert (work / "out.mp4").exists()
 
 
@@ -213,23 +240,39 @@ def test_render_requires_approval(client, approved_package):
     pid = approved_package["package_id"]
     book_id = approved_package["book_id"]
 
-    # Unapprove the current one so nothing is approved.
+    # Generate a fresh (un-approved) revision by mocking the full 4-stage chain.
+    tiny_hooks = {
+        "alternatives": [
+            {"angle": "curiosity", "text": "x"},
+            {"angle": "fear", "text": "y"},
+            {"angle": "promise", "text": "z"},
+        ],
+        "chosen_index": 0,
+        "rationale": "",
+    }
+    tiny_script = {
+        "script": "## HOOK\nx\n\n## WORLD TEASE\ny\n\n## EMOTIONAL PULL\nz\n\n## SOCIAL PROOF\nw\n\n## CTA\nq",
+        "narration": "x y z w q",
+        "section_word_counts": {
+            "hook": 1, "world_tease": 1, "emotional_pull": 1,
+            "social_proof": 1, "cta": 1,
+        },
+    }
+    tiny_scenes = {
+        "scenes": [
+            {"section": s, "prompt": "p", "focus": "f"}
+            for s in ["hook", "world_tease", "emotional_pull", "social_proof", "cta"]
+        ]
+    }
+    tiny_meta = {
+        "titles": {"tiktok": "", "yt_shorts": "", "ig_reels": "", "threads": ""},
+        "hashtags": {"tiktok": [], "yt_shorts": [], "ig_reels": [], "threads": []},
+    }
     with (
-        patch(
-            "app.services.llm.generate_script_package",
-            return_value={
-                "script": "x",
-                "visual_prompts": ["a", "b", "c", "d"],
-                "narration": "n",
-            },
-        ),
-        patch(
-            "app.services.llm.generate_platform_meta",
-            return_value={
-                "titles": {"tiktok": "", "yt_shorts": "", "ig_reels": "", "threads": ""},
-                "hashtags": {"tiktok": [], "yt_shorts": [], "ig_reels": [], "threads": []},
-            },
-        ),
+        patch("app.services.llm.generate_hooks", return_value=tiny_hooks),
+        patch("app.services.llm.generate_script", return_value=tiny_script),
+        patch("app.services.llm.generate_scene_prompts", return_value=tiny_scenes),
+        patch("app.services.llm.generate_platform_meta", return_value=tiny_meta),
     ):
         gen2 = client.post(f"/books/{book_id}/generate", json={"note": "v2"}).json()
 

@@ -33,14 +33,35 @@ def generate_package(
     db.commit()
 
     try:
-        script_pkg = llm.generate_script_package(
+        # Stage 1 — hook portfolio. Claude generates 3 angles and picks one.
+        hooks = llm.generate_hooks(
             title=book.title,
             author=book.author,
             description=book.description,
             genre=genre,
+        )
+        chosen_hook_text = hooks["alternatives"][hooks["chosen_index"]]["text"]
+
+        # Stage 2 — script + narration + section_word_counts (uses the hook).
+        script_pkg = llm.generate_script(
+            title=book.title,
+            author=book.author,
+            description=book.description,
+            genre=genre,
+            chosen_hook=chosen_hook_text,
             note=note,
         )
-        meta = llm.generate_platform_meta(script=script_pkg["script"], genre=genre)
+
+        # Stage 3 — one image prompt per section, derived from the script.
+        scene_pkg = llm.generate_scene_prompts(
+            script=script_pkg["script"], genre=genre
+        )
+
+        # Stage 4 — per-platform titles + hashtags from the finished script.
+        meta = llm.generate_platform_meta(
+            script=script_pkg["script"], genre=genre
+        )
+
         affiliate_amazon, affiliate_bookshop = _affiliate_links(book.isbn)
 
         last_revision = (
@@ -53,8 +74,11 @@ def generate_package(
             book_id=book_id,
             revision_number=last_revision + 1,
             script=script_pkg["script"],
-            visual_prompts=script_pkg["visual_prompts"],
             narration=script_pkg["narration"],
+            section_word_counts=script_pkg["section_word_counts"],
+            hook_alternatives=hooks["alternatives"],
+            chosen_hook_index=hooks["chosen_index"],
+            visual_prompts=scene_pkg["scenes"],
             titles=meta["titles"],
             hashtags=meta["hashtags"],
             affiliate_amazon=affiliate_amazon,
@@ -66,7 +90,10 @@ def generate_package(
         book.status = "review"
         db.commit()
         db.refresh(package)
-        return {"package_id": package.id, "revision_number": package.revision_number}
+        return {
+            "package_id": package.id,
+            "revision_number": package.revision_number,
+        }
 
     except Exception as exc:
         db.rollback()
