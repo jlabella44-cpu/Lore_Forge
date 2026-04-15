@@ -1,0 +1,47 @@
+# Environment
+.env
+.env.local
+!.env.example
+!.env.local.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node / Next.js
+node_modules/
+.next/
+out/
+dist/
+*.tsbuildinfo
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# SQLite dev DB
+*.sqlite
+*.sqlite-journal
+*.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+playwright/.cache/
+
+# Temp
+tmp/
+*.log
