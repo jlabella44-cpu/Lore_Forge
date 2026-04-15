@@ -10,8 +10,16 @@ from app.db import Base
 class ContentPackage(Base):
     """One row per REVISION. Each regenerate produces a new row.
 
-    Shorts-only posture: single ~150-word script (`script`), 4-5 image prompts,
-    narration text, and per-platform meta for the four short-form targets.
+    Shorts-only, section-structured pipeline:
+      * `script` is stored with `## HOOK`, `## WORLD TEASE`, etc. headers so
+        humans and the renderer can split it deterministically.
+      * `narration` is the TTS-ready prose version (no headers, [PAUSE] marks).
+      * `visual_prompts` is one prompt per script section (5 total), each
+        annotated with the section it supports.
+      * `hook_alternatives` stashes the three candidates Claude generated so
+        future A/B tests can re-draw from them.
+      * `captions` is populated at render time from Whisper word-level
+        transcription — null until the package has rendered at least once.
     """
 
     __tablename__ = "content_packages"
@@ -20,10 +28,24 @@ class ContentPackage(Base):
     book_id: Mapped[int] = mapped_column(ForeignKey("books.id"), index=True)
     revision_number: Mapped[int] = mapped_column(Integer, default=1)
 
-    # Script (90-sec target, ~150 words), image prompts, narration
+    # Script + narration.
     script: Mapped[str | None] = mapped_column(Text, nullable=True)
-    visual_prompts: Mapped[list | None] = mapped_column(JSON, nullable=True)
     narration: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Hook portfolio. `hook_alternatives` = list[{angle, text}], length 3.
+    # `chosen_hook_index` points at whichever of those the script used.
+    hook_alternatives: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    chosen_hook_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Section-anchored image prompts. list[{section, prompt, focus}], length 5.
+    visual_prompts: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+    # Per-section narration word counts — used by Remotion to time scenes.
+    # {hook: int, world_tease: int, emotional_pull: int, social_proof: int, cta: int}
+    section_word_counts: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+
+    # Populated at render time: list[{word, start, end}] in seconds.
+    captions: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     # Per-platform metadata. Keys: tiktok, yt_shorts, ig_reels, threads
     titles: Mapped[dict | None] = mapped_column(JSON, nullable=True)
