@@ -3,12 +3,13 @@
 ## Project Structure
 - /frontend   → Next.js 14 app (Frontend Agent owns this)
 - /backend    → FastAPI app + APScheduler jobs (Backend Agent owns this)
+- /remotion   → Remotion video assembly (Backend Agent owns this)
 - /db         → Alembic migrations (DB Agent owns this)
 - /tests      → Pytest + Playwright (Test Agent owns this)
 
 ## Agent Rules
 - Frontend Agent: ONLY touches /frontend. Never edits backend files.
-- Backend Agent: ONLY touches /backend. Never edits /frontend.
+- Backend Agent: touches /backend and /remotion. Never edits /frontend.
 - DB Agent: ONLY touches /db. Coordinate with Backend on schema changes.
 - Test Agent: ONLY touches /tests. Reads all other dirs, writes none.
 

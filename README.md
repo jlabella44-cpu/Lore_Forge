@@ -13,6 +13,7 @@ Every expensive step is behind a pluggable provider with a free/cheap default.
 ```
 frontend/   Next.js 14 (App Router, Tailwind, shadcn/ui)
 backend/    FastAPI + SQLAlchemy + APScheduler
+remotion/   Remotion video assembly (Phase 2+)
 db/         Alembic migrations
 tests/      pytest + Playwright
 ```

@@ -15,9 +15,10 @@ venv/
 .ruff_cache/
 .mypy_cache/
 
-# Node / Next.js
+# Node / Next.js / Remotion
 node_modules/
 .next/
+remotion/out/
 out/
 dist/
 *.tsbuildinfo
