@@ -50,8 +50,12 @@ class Settings(BaseSettings):
 
     # ---- Discovery ----
     nyt_api_key: str = ""
-    reddit_client_id: str = ""
-    reddit_client_secret: str = ""
+    reddit_user_agent: str = "lore-forge/0.1 (book-discovery bot)"
+    firecrawl_api_key: str = ""
+
+    # Which sources run on /discover/run and on the weekly cron. Comma-separated.
+    # Valid values: nyt, goodreads, amazon_movers, reddit, booktok.
+    sources_enabled: str = "nyt"
 
     # ---- Affiliate ----
     amazon_associate_tag: str = ""
