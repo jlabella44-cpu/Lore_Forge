@@ -2,7 +2,16 @@ from app.models.analytics import Analytics
 from app.models.book import Book
 from app.models.book_source import BookSource
 from app.models.content_package import ContentPackage
+from app.models.cost_record import CostRecord
 from app.models.job import Job
 from app.models.video import Video
 
-__all__ = ["Analytics", "Book", "BookSource", "ContentPackage", "Job", "Video"]
+__all__ = [
+    "Analytics",
+    "Book",
+    "BookSource",
+    "ContentPackage",
+    "CostRecord",
+    "Job",
+    "Video",
+]

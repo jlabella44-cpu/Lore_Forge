@@ -21,6 +21,7 @@ import httpx
 
 from app.config import settings
 from app.observability import log_call
+from app.services import cost
 
 Provider = Literal[
     "wanx",
@@ -54,6 +55,12 @@ def generate(prompt: str, out_path: str | Path, *, aspect: str = "9:16") -> str:
     ):
         if provider == "wanx":
             _wanx_generate(prompt, out_path, aspect)
+            try:
+                cost.record_image(
+                    provider="wanx", model="wanx2.1-t2i-turbo", count=1
+                )
+            except Exception:
+                pass
         elif provider == "dalle":
             raise NotImplementedError("DALL-E 3 — not yet wired (Phase 2+).")
         elif provider == "imagen":

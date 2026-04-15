@@ -19,6 +19,7 @@ from typing import Literal
 
 from app.config import settings
 from app.observability import log_call
+from app.services import cost
 
 Provider = Literal["openai", "kokoro", "dashscope", "elevenlabs"]
 
@@ -52,6 +53,10 @@ def synthesize(narration: str, tone: str, out_path: str | Path) -> str:
     ):
         if provider == "openai":
             _openai_synthesize(text, voice, out_path)
+            try:
+                cost.record_tts(provider="openai", model="tts-1", chars=len(text))
+            except Exception:
+                pass
         elif provider == "kokoro":
             raise NotImplementedError("Kokoro TTS — not yet wired (Phase 2+).")
         elif provider == "dashscope":

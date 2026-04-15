@@ -14,6 +14,7 @@ from pathlib import Path
 
 from app.config import settings
 from app.observability import log_call
+from app.services import cost
 
 
 @lru_cache(maxsize=1)
@@ -41,6 +42,17 @@ def transcribe_words(mp3_path: str | Path) -> list[dict]:
             )
         words = getattr(resp, "words", None) or []
         ctx["words"] = len(words)
+
+        # Record cost based on actual audio duration (last word's end time
+        # is the narration length in seconds).
+        try:
+            seconds = float(words[-1].end) if words else 0.0
+            cost.record_whisper(
+                provider="openai", model="whisper-1", seconds=seconds
+            )
+        except Exception:
+            pass
+
         return [
             {"word": w.word, "start": float(w.start), "end": float(w.end)}
             for w in words

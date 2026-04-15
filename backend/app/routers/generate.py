@@ -12,10 +12,11 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.context import package_context
 from app.db import get_db
 from app.models import Book, ContentPackage
 from app.observability import log_call
-from app.services import amazon, jobs, llm, renderer
+from app.services import amazon, cost, jobs, llm, renderer
 
 router = APIRouter()
 
@@ -94,7 +95,8 @@ def render_package(
         return {"job_id": job_id, "status": "queued"}
 
     try:
-        result = renderer.render_package(package, book)
+        with package_context(package_id):
+            result = renderer.render_package(package, book)
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"package_id": package_id, **result}
@@ -141,7 +143,9 @@ def _generate_sync(db: Session, book: Book, book_id: int, note: str | None) -> d
     book.status = "generating"
     db.commit()
     try:
-        result = _generate_core(db, book, genre, note)
+        with cost.collect_pending() as pending_cost_ids:
+            result = _generate_core(db, book, genre, note)
+        cost.attach_pending_to(result["package_id"], pending_cost_ids)
         book.status = "review"
         db.commit()
         return {
@@ -168,8 +172,11 @@ def _generate_worker(job_id: int, *, book_id: int, note: str | None) -> None:
         db.commit()
         try:
             set_progress("Stage 1/4: hook portfolio")
-            # Use a fresh nested flow that emits progress between stages.
-            result = _generate_core_with_progress(db, book, genre, note, set_progress)
+            with cost.collect_pending() as pending_cost_ids:
+                result = _generate_core_with_progress(
+                    db, book, genre, note, set_progress
+                )
+            cost.attach_pending_to(result["package_id"], pending_cost_ids)
             book.status = "review"
             db.commit()
             set_progress.result(result)
@@ -191,7 +198,10 @@ def _render_worker(job_id: int, *, package_id: int) -> None:
         if book is None:
             raise RuntimeError(f"Book {package.book_id} not found")
         set_progress("rendering: TTS + images + remotion")
-        result = renderer.render_package(package, book)
+        # Render-time services can read package_id directly — the package
+        # already exists so cost records get attached at write time.
+        with package_context(package_id):
+            result = renderer.render_package(package, book)
         set_progress.result({"package_id": package_id, **result})
 
 

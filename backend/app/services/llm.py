@@ -22,6 +22,7 @@ from typing import Any
 
 from app.config import settings
 from app.observability import log_call
+from app.services import cost
 
 SECTIONS: list[str] = [
     "hook",
@@ -283,6 +284,16 @@ def _claude_call(system: str, user: str, tool_name: str, schema: dict) -> dict:
         tool_choice={"type": "tool", "name": tool_name},
         messages=[{"role": "user", "content": user}],
     )
+    try:
+        cost.record_llm(
+            call_name=f"llm.{tool_name}",
+            provider="claude",
+            model=settings.claude_model,
+            usage=getattr(resp, "usage", None),
+        )
+    except Exception:
+        # Telemetry must never tank the caller.
+        pass
     for block in resp.content:
         if block.type == "tool_use":
             return dict(block.input)
@@ -290,7 +301,7 @@ def _claude_call(system: str, user: str, tool_name: str, schema: dict) -> dict:
 
 
 def _openai_compat_call(
-    client, model: str, system: str, user: str, schema: dict
+    client, model: str, system: str, user: str, schema: dict, *, provider: str, call_name: str
 ) -> dict:
     system_with_schema = (
         f"{system}\n\n"
@@ -306,6 +317,15 @@ def _openai_compat_call(
         response_format={"type": "json_object"},
         temperature=0.7,
     )
+    try:
+        cost.record_llm(
+            call_name=call_name,
+            provider=provider,
+            model=model,
+            usage=getattr(resp, "usage", None),
+        )
+    except Exception:
+        pass
     return json.loads(resp.choices[0].message.content)
 
 
@@ -318,8 +338,9 @@ def _dispatch(
 ) -> dict:
     """role: 'script' → SCRIPT_PROVIDER, 'meta' → META_PROVIDER."""
     provider = settings.script_provider if role == "script" else settings.meta_provider
+    call_name = f"llm.{tool_name}"
 
-    with log_call(f"llm.{tool_name}", role=role, provider=provider):
+    with log_call(call_name, role=role, provider=provider):
         if provider == "claude":
             return _claude_call(system, user, tool_name, schema)
         if provider == "openai":
@@ -328,10 +349,14 @@ def _dispatch(
                 if role == "script"
                 else settings.openai_meta_model
             )
-            return _openai_compat_call(_openai_client(), model, system, user, schema)
+            return _openai_compat_call(
+                _openai_client(), model, system, user, schema,
+                provider="openai", call_name=call_name,
+            )
         if provider == "qwen":
             return _openai_compat_call(
-                _qwen_client(), settings.qwen_model, system, user, schema
+                _qwen_client(), settings.qwen_model, system, user, schema,
+                provider="qwen", call_name=call_name,
             )
         raise ValueError(f"Unknown LLM provider: {provider!r}")
 
