@@ -98,6 +98,34 @@ export default function BookReviewPage({
     }
   };
 
+  const [rendering, setRendering] = useState(false);
+  const [lastRender, setLastRender] = useState<{
+    file_path: string;
+    duration_seconds: number;
+    size_bytes: number;
+    tone: string;
+  } | null>(null);
+
+  const render = async (packageId: number) => {
+    setRendering(true);
+    setError(null);
+    setLastRender(null);
+    try {
+      const res = await apiFetch<{
+        package_id: number;
+        file_path: string;
+        duration_seconds: number;
+        size_bytes: number;
+        tone: string;
+      }>(`/packages/${packageId}/render`, { method: "POST" });
+      setLastRender(res);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setRendering(false);
+    }
+  };
+
   if (!book) {
     return (
       <main className="mx-auto max-w-6xl p-8">
@@ -152,6 +180,9 @@ export default function BookReviewPage({
                 pkg={active}
                 onApprove={approve}
                 approving={approving}
+                onRender={render}
+                rendering={rendering}
+                lastRender={lastRender}
               />
             )}
             <RegenerateForm
@@ -180,14 +211,25 @@ function PackageView({
   pkg,
   onApprove,
   approving,
+  onRender,
+  rendering,
+  lastRender,
 }: {
   pkg: Package;
   onApprove: (id: number) => void;
   approving: boolean;
+  onRender: (id: number) => void;
+  rendering: boolean;
+  lastRender: {
+    file_path: string;
+    duration_seconds: number;
+    size_bytes: number;
+    tone: string;
+  } | null;
 }) {
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div className="text-sm">
           <span className="opacity-70">Revision {pkg.revision_number}</span>
           {pkg.is_approved && (
@@ -201,16 +243,37 @@ function PackageView({
             </div>
           )}
         </div>
-        {!pkg.is_approved && (
-          <button
-            onClick={() => onApprove(pkg.id)}
-            disabled={approving}
-            className="rounded-md bg-green-500/20 px-4 py-2 text-sm text-green-100 hover:bg-green-500/30 disabled:opacity-50"
-          >
-            {approving ? "Approving…" : "Approve"}
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {pkg.is_approved && (
+            <button
+              onClick={() => onRender(pkg.id)}
+              disabled={rendering}
+              className="rounded-md bg-white/10 px-4 py-2 text-sm hover:bg-white/20 disabled:opacity-50"
+              title="Synthesize narration, generate images, render mp4"
+            >
+              {rendering ? "Rendering…" : "Render Video"}
+            </button>
+          )}
+          {!pkg.is_approved && (
+            <button
+              onClick={() => onApprove(pkg.id)}
+              disabled={approving}
+              className="rounded-md bg-green-500/20 px-4 py-2 text-sm text-green-100 hover:bg-green-500/30 disabled:opacity-50"
+            >
+              {approving ? "Approving…" : "Approve"}
+            </button>
+          )}
+        </div>
       </div>
+
+      {lastRender && (
+        <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-4 text-sm">
+          <div className="mb-2 opacity-80">
+            Rendered {lastRender.duration_seconds.toFixed(1)}s · {(lastRender.size_bytes / 1_048_576).toFixed(1)} MB · tone={lastRender.tone}
+          </div>
+          <code className="text-xs opacity-70">{lastRender.file_path}</code>
+        </div>
+      )}
 
       <Section title="90-sec script" copyText={pkg.script}>
         <p className="whitespace-pre-wrap text-sm leading-relaxed">{pkg.script}</p>

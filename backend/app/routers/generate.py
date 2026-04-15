@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.db import get_db
 from app.models import Book, ContentPackage
-from app.services import amazon, llm
+from app.services import amazon, llm, renderer
 
 router = APIRouter()
 
@@ -76,6 +76,36 @@ def generate_package(
             book.status = previous_status
             db.commit()
         raise HTTPException(status_code=502, detail=f"Generation failed: {exc}") from exc
+
+
+@router.post("/packages/{package_id}/render")
+def render_package(
+    package_id: int,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Kick off the full render pipeline for an approved package.
+
+    Synchronous for Phase 2 — renders take ~1-3 minutes. If this turns into
+    a UX problem the call chain is small enough to move into a FastAPI
+    BackgroundTask without restructuring.
+    """
+    package = db.get(ContentPackage, package_id)
+    if package is None:
+        raise HTTPException(status_code=404, detail="Package not found")
+    if not package.is_approved:
+        raise HTTPException(
+            status_code=400,
+            detail="Package must be approved before rendering",
+        )
+    book = db.get(Book, package.book_id)
+    if book is None:
+        raise HTTPException(status_code=404, detail="Book not found")
+
+    try:
+        result = renderer.render_package(package, book)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    return {"package_id": package_id, **result}
 
 
 @router.post("/packages/{package_id}/approve")

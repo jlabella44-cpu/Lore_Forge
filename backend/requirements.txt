@@ -15,3 +15,6 @@ dashscope==1.20.7
 
 beautifulsoup4==4.12.3
 apscheduler==3.10.4
+
+# mp3 duration probing for the renderer — tiny pure-Python dep.
+mutagen==1.47.0

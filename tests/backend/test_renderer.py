@@ -1,0 +1,277 @@
+"""Renderer orchestrator + POST /packages/{id}/render."""
+from pathlib import Path
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+
+def test_tone_for_maps_genres_correctly():
+    from app.services.renderer import tone_for
+
+    assert tone_for("fantasy") == "dark"
+    assert tone_for("thriller") == "dark"
+    assert tone_for("scifi") == "hype"
+    assert tone_for("romance") == "cozy"
+    assert tone_for("historical_fiction") == "cozy"
+    assert tone_for("other") == "dark"
+    assert tone_for(None) == "dark"
+    assert tone_for("unknown_genre") == "dark"
+
+
+def test_pick_music_track_returns_none_when_empty(tmp_path):
+    from app.config import settings
+    from app.services.renderer import pick_music_track
+
+    orig = settings.music_dir
+    settings.music_dir = str(tmp_path)
+    try:
+        # No tone dir exists → None
+        assert pick_music_track("dark") is None
+
+        # Empty tone dir → None
+        (tmp_path / "dark").mkdir()
+        assert pick_music_track("dark") is None
+    finally:
+        settings.music_dir = orig
+
+
+def test_pick_music_track_chooses_from_tone_dir(tmp_path):
+    from app.config import settings
+    from app.services.renderer import pick_music_track
+
+    (tmp_path / "hype").mkdir()
+    t1 = tmp_path / "hype" / "one.mp3"
+    t2 = tmp_path / "hype" / "two.m4a"
+    t1.write_bytes(b"x")
+    t2.write_bytes(b"x")
+    # Non-audio file should be ignored
+    (tmp_path / "hype" / "readme.txt").write_bytes(b"ignore me")
+
+    orig = settings.music_dir
+    settings.music_dir = str(tmp_path)
+    try:
+        picked = pick_music_track("hype")
+        assert picked in (t1, t2)
+    finally:
+        settings.music_dir = orig
+
+
+def test_probe_duration_reads_mp3(tmp_path):
+    """Uses mutagen to read the mp3 length. Smoke-test with a mock."""
+    from app.services import renderer
+
+    fake_mp3 = MagicMock()
+    fake_mp3.info.length = 87.5
+
+    with patch("mutagen.mp3.MP3", return_value=fake_mp3):
+        assert renderer.probe_duration(tmp_path / "x.mp3") == 87.5
+
+
+# ---------- End-to-end render orchestration (everything mocked) ----------
+
+
+@pytest.fixture
+def approved_package(client, tmp_path, monkeypatch):
+    """Seed a book + approved package via the API, with renders_dir pointed at tmp."""
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "renders_dir", str(tmp_path / "renders"))
+    monkeypatch.setattr(settings, "remotion_dir", str(tmp_path / "remotion"))
+    monkeypatch.setattr(settings, "music_dir", str(tmp_path / "music"))
+
+    nyt_hits = [
+        {
+            "title": "Night Circus",
+            "author": "Erin Morgenstern",
+            "isbn": "9780307744432",
+            "description": "Two magicians duel in a mysterious circus.",
+            "cover_url": None,
+            "source_rank": 1,
+        }
+    ]
+    script_pkg = {
+        "script": "HOOK. WORLD TEASE. EMOTIONAL PULL. SOCIAL PROOF. CTA.",
+        "visual_prompts": [
+            "a moonlit circus tent",
+            "silhouettes in a mirror maze",
+            "a spiraling staircase of stars",
+            "a raven on a velvet rope",
+        ],
+        "narration": "In a circus [PAUSE] that arrives without warning...",
+    }
+    meta_pkg = {
+        "titles": {"tiktok": "t", "yt_shorts": "y", "ig_reels": "i", "threads": "th"},
+        "hashtags": {
+            "tiktok": ["#booktok"],
+            "yt_shorts": ["#shorts"],
+            "ig_reels": ["#bookstagram"],
+            "threads": ["#books"],
+        },
+    }
+
+    with (
+        patch("app.sources.nyt.fetch_bestsellers", return_value=nyt_hits),
+        patch("app.services.llm.classify_genre", return_value=("fantasy", 0.9)),
+    ):
+        client.post("/discover/run")
+
+    book_id = client.get("/books").json()[0]["id"]
+    with (
+        patch("app.services.llm.generate_script_package", return_value=script_pkg),
+        patch("app.services.llm.generate_platform_meta", return_value=meta_pkg),
+    ):
+        gen = client.post(f"/books/{book_id}/generate", json={}).json()
+
+    client.post(f"/packages/{gen['package_id']}/approve")
+    return {"book_id": book_id, "package_id": gen["package_id"], "tmp": tmp_path}
+
+
+def test_render_orchestrates_tts_images_and_remotion(client, approved_package):
+    """End-to-end render with every external call stubbed out.
+
+    Confirms the orchestrator: calls TTS with the right tone, calls image gen
+    per prompt, probes mp3 duration, writes a props.json, shells out to
+    Remotion, and returns the result shape the frontend expects.
+    """
+    pid = approved_package["package_id"]
+    tmp = approved_package["tmp"]
+
+    def fake_tts(narration, tone, out_path):
+        out_path = Path(out_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(b"ID3fake_mp3_header")
+        # Record the call so the test can assert on it
+        fake_tts.captured = {"narration": narration, "tone": tone, "path": str(out_path)}
+        return str(out_path)
+
+    fake_tts.captured = None  # type: ignore[attr-defined]
+
+    def fake_image(prompt, out_path, aspect="9:16"):
+        out_path = Path(out_path)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_bytes(b"\x89PNG\r\n\x1a\n")
+        return str(out_path)
+
+    def fake_run(cmd, cwd, capture_output, text):
+        # Simulate Remotion producing the out.mp4 on disk.
+        out_mp4 = Path(cmd[cmd.index("LoreForge") + 1])
+        out_mp4.parent.mkdir(parents=True, exist_ok=True)
+        out_mp4.write_bytes(b"fake_mp4_bytes" * 1000)
+        rv = MagicMock()
+        rv.returncode = 0
+        rv.stderr = ""
+        return rv
+
+    with (
+        patch("app.services.tts.synthesize", side_effect=fake_tts),
+        patch("app.services.images.generate", side_effect=fake_image),
+        patch(
+            "app.services.renderer.probe_duration", return_value=54.2
+        ),
+        patch("subprocess.run", side_effect=fake_run) as run_mock,
+    ):
+        res = client.post(f"/packages/{pid}/render")
+
+    assert res.status_code == 200, res.text
+    body = res.json()
+    assert body["package_id"] == pid
+    assert body["tone"] == "dark"  # fantasy → dark
+    # Intro + outro pad 4s on top of 54.2s narration
+    assert abs(body["duration_seconds"] - 58.2) < 1e-6
+    assert body["file_path"].endswith("out.mp4")
+    assert body["size_bytes"] > 0
+
+    # TTS was called with the right tone
+    assert fake_tts.captured["tone"] == "dark"
+    assert fake_tts.captured["narration"].startswith("In a circus")
+
+    # Remotion was invoked with the expected CLI args + a props.json on disk
+    cmd, kwargs = run_mock.call_args.args, run_mock.call_args.kwargs
+    assert cmd[0][:3] == ["npx", "remotion", "render"]
+    props_arg = [a for a in cmd[0] if a.startswith("--props=")][0]
+    props_path = Path(props_arg.removeprefix("--props="))
+    assert props_path.exists()
+    import json
+
+    props = json.loads(props_path.read_text())
+    assert props["tone"] == "dark"
+    assert props["title"] == "Night Circus"
+    assert len(props["images"]) == 4
+    assert props["audio"].endswith("narration.mp3")
+    assert props["durationSeconds"] == 58.2
+
+    # Intermediate assets stayed in the per-package working dir
+    work = tmp / "renders" / str(pid)
+    assert (work / "narration.mp3").exists()
+    assert (work / "scene_01.png").exists()
+    assert (work / "scene_04.png").exists()
+    assert (work / "out.mp4").exists()
+
+
+def test_render_requires_approval(client, approved_package):
+    """Generate a new revision (not approved) and try to render it."""
+    pid = approved_package["package_id"]
+    book_id = approved_package["book_id"]
+
+    # Unapprove the current one so nothing is approved.
+    with (
+        patch(
+            "app.services.llm.generate_script_package",
+            return_value={
+                "script": "x",
+                "visual_prompts": ["a", "b", "c", "d"],
+                "narration": "n",
+            },
+        ),
+        patch(
+            "app.services.llm.generate_platform_meta",
+            return_value={
+                "titles": {"tiktok": "", "yt_shorts": "", "ig_reels": "", "threads": ""},
+                "hashtags": {"tiktok": [], "yt_shorts": [], "ig_reels": [], "threads": []},
+            },
+        ),
+    ):
+        gen2 = client.post(f"/books/{book_id}/generate", json={"note": "v2"}).json()
+
+    # Only v1 is approved; try rendering v2.
+    res = client.post(f"/packages/{gen2['package_id']}/render")
+    assert res.status_code == 400
+    assert "approved" in res.json()["detail"].lower()
+
+
+def test_render_404s_on_missing_package(client):
+    assert client.post("/packages/99999/render").status_code == 404
+
+
+def test_render_surfaces_remotion_failure(client, approved_package):
+    pid = approved_package["package_id"]
+
+    def fake_tts(*a, **kw):
+        out = Path(a[2] if len(a) > 2 else kw["out_path"])
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"x")
+        return str(out)
+
+    def fake_image(*a, **kw):
+        out = Path(a[1] if len(a) > 1 else kw["out_path"])
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"x")
+        return str(out)
+
+    def failing_remotion(cmd, cwd, capture_output, text):
+        rv = MagicMock()
+        rv.returncode = 1
+        rv.stderr = "bundler exploded\nDetails here"
+        return rv
+
+    with (
+        patch("app.services.tts.synthesize", side_effect=fake_tts),
+        patch("app.services.images.generate", side_effect=fake_image),
+        patch("app.services.renderer.probe_duration", return_value=30.0),
+        patch("subprocess.run", side_effect=failing_remotion),
+    ):
+        res = client.post(f"/packages/{pid}/render")
+
+    assert res.status_code == 500
+    assert "Remotion render failed" in res.json()["detail"]
+    assert "bundler exploded" in res.json()["detail"]

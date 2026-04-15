@@ -11,6 +11,18 @@ class Settings(BaseSettings):
     # ---- Storage ----
     database_url: str = "sqlite:///./lore_forge.sqlite"
 
+    # ---- Renderer paths (all resolved relative to the backend/ cwd) ----
+    renders_dir: str = "./renders"
+    music_dir: str = "./assets/music"
+    remotion_dir: str = "../remotion"
+
+    # ---- APScheduler ----
+    # Weekly discovery cron is opt-in so `uvicorn --reload` doesn't fire
+    # real API calls on every code change in dev.
+    discovery_cron_enabled: bool = False
+    discovery_cron_day: str = "mon"
+    discovery_cron_hour: int = 6
+
     # ---- LLM keys ----
     anthropic_api_key: str = ""
     claude_model: str = "claude-opus-4-6"
