@@ -186,9 +186,16 @@ def test_render_orchestrates_tts_images_and_remotion(client, approved_package):
         rv.stderr = ""
         return rv
 
+    fake_captions = [
+        {"word": "In", "start": 0.04, "end": 0.17},
+        {"word": "a", "start": 0.18, "end": 0.22},
+        {"word": "circus", "start": 0.23, "end": 0.74},
+    ]
+
     with (
         patch("app.services.tts.synthesize", side_effect=fake_tts),
         patch("app.services.images.generate", side_effect=fake_image),
+        patch("app.services.whisper.transcribe_words", return_value=fake_captions),
         patch(
             "app.services.renderer.probe_duration", return_value=54.2
         ),
@@ -220,19 +227,38 @@ def test_render_orchestrates_tts_images_and_remotion(client, approved_package):
     props = json.loads(props_path.read_text())
     assert props["tone"] == "dark"
     assert props["title"] == "Night Circus"
-    # 5 section-anchored scenes (1 per script section); Commit 3 rewrites the
-    # renderer to emit `scenes` with timing; for now props still carries the
-    # flat `images` list that Commit 2's renderer produces.
-    assert len(props["images"]) == 5
+
+    # New scenes shape: 5 entries, each {section, image, durationSeconds}
+    assert len(props["scenes"]) == 5
+    for scene, expected_section in zip(props["scenes"], [
+        "hook", "world_tease", "emotional_pull", "social_proof", "cta"
+    ]):
+        assert scene["section"] == expected_section
+        assert scene["image"].endswith(".png")
+        assert scene["durationSeconds"] > 0
+
+    # Per-section durations should sum to the narration length (within 1e-2
+    # for rounding) — not to total_duration; intro+outro hold the cards.
+    scene_total = sum(s["durationSeconds"] for s in props["scenes"])
+    assert abs(scene_total - 54.2) < 0.5  # tolerant: floor-at-1.5 rebalance
+
+    # Captions flow through to props and get persisted on the package
+    assert props["captions"] == fake_captions
     assert props["audio"].endswith("narration.mp3")
     assert props["durationSeconds"] == 58.2
 
     # Intermediate assets stayed in the per-package working dir
     work = tmp / "renders" / str(pid)
     assert (work / "narration.mp3").exists()
-    assert (work / "scene_01.png").exists()
-    assert (work / "scene_05.png").exists()
+    # scene files now encode the section in the filename
+    assert (work / "scene_01_hook.png").exists()
+    assert (work / "scene_05_cta.png").exists()
     assert (work / "out.mp4").exists()
+
+    # Captions persisted to the package
+    detail = client.get(f"/books/{approved_package['book_id']}").json()
+    approved = next(p for p in detail["packages"] if p["id"] == pid)
+    assert approved["captions"] == fake_captions
 
 
 def test_render_requires_approval(client, approved_package):
@@ -310,6 +336,7 @@ def test_render_surfaces_remotion_failure(client, approved_package):
     with (
         patch("app.services.tts.synthesize", side_effect=fake_tts),
         patch("app.services.images.generate", side_effect=fake_image),
+        patch("app.services.whisper.transcribe_words", return_value=[]),
         patch("app.services.renderer.probe_duration", return_value=30.0),
         patch("subprocess.run", side_effect=failing_remotion),
     ):
@@ -318,3 +345,60 @@ def test_render_surfaces_remotion_failure(client, approved_package):
     assert res.status_code == 500
     assert "Remotion render failed" in res.json()["detail"]
     assert "bundler exploded" in res.json()["detail"]
+
+
+def test_render_skips_whisper_when_captions_already_persisted(client, approved_package):
+    """Re-rendering a package with unchanged narration should not re-transcribe."""
+    from app.db import SessionLocal
+    from app.models import ContentPackage
+
+    pid = approved_package["package_id"]
+    pre_cached = [{"word": "cached", "start": 0.0, "end": 0.5}]
+
+    # Seed captions directly so the renderer sees them on first pass.
+    db = SessionLocal()
+    try:
+        pkg = db.get(ContentPackage, pid)
+        pkg.captions = pre_cached
+        db.commit()
+    finally:
+        db.close()
+
+    def fake_tts(*a, **kw):
+        out = Path(a[2] if len(a) > 2 else kw["out_path"])
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"x")
+        return str(out)
+
+    def fake_image(*a, **kw):
+        out = Path(a[1] if len(a) > 1 else kw["out_path"])
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"x")
+        return str(out)
+
+    def fake_run(cmd, cwd, capture_output, text):
+        out_mp4 = Path(cmd[cmd.index("LoreForge") + 1])
+        out_mp4.parent.mkdir(parents=True, exist_ok=True)
+        out_mp4.write_bytes(b"x")
+        rv = MagicMock()
+        rv.returncode = 0
+        rv.stderr = ""
+        return rv
+
+    with (
+        patch("app.services.tts.synthesize", side_effect=fake_tts),
+        patch("app.services.images.generate", side_effect=fake_image),
+        patch("app.services.whisper.transcribe_words") as whisper_mock,
+        patch("app.services.renderer.probe_duration", return_value=30.0),
+        patch("subprocess.run", side_effect=fake_run) as run_mock,
+    ):
+        res = client.post(f"/packages/{pid}/render")
+
+    assert res.status_code == 200
+    whisper_mock.assert_not_called()
+
+    # The cached captions flowed into Remotion props untouched
+    import json
+    props_arg = [a for a in run_mock.call_args.args[0] if a.startswith("--props=")][0]
+    props = json.loads(Path(props_arg.removeprefix("--props=")).read_text())
+    assert props["captions"] == pre_cached
