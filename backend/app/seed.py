@@ -20,8 +20,12 @@ run with empty API keys.
 from __future__ import annotations
 
 import argparse
+import shutil
+import subprocess
 from datetime import datetime
+from pathlib import Path
 
+from app.config import settings
 from app.db import SessionLocal, engine
 from app.models import Book, BookSource, ContentPackage
 from app.db import Base
@@ -182,7 +186,7 @@ SAMPLE_PACKAGE = {
 }
 
 
-def run(wipe: bool = False) -> dict:
+def run(wipe: bool = False, with_video: bool = True) -> dict:
     # Make sure tables exist so a clean clone can seed without running alembic.
     Base.metadata.create_all(engine)
 
@@ -190,8 +194,13 @@ def run(wipe: bool = False) -> dict:
     created_books = 0
     created_sources = 0
     created_packages = 0
+    rendered_video = False
     try:
         if wipe:
+            # Cost records reference packages; clear them first to avoid FK churn.
+            from app.models import CostRecord
+
+            db.query(CostRecord).delete()
             db.query(ContentPackage).delete()
             db.query(BookSource).delete()
             db.query(Book).delete()
@@ -245,6 +254,9 @@ def run(wipe: bool = False) -> dict:
                         **SAMPLE_PACKAGE,
                     )
                     db.add(pkg)
+                    db.flush()
+                    if with_video:
+                        rendered_video = _render_sample_video(pkg.id)
                     created_packages += 1
                     book.status = "scheduled"
 
@@ -256,7 +268,58 @@ def run(wipe: bool = False) -> dict:
         "books_created": created_books,
         "book_sources_created": created_sources,
         "packages_created": created_packages,
+        "sample_video_rendered": rendered_video,
     }
+
+
+def _render_sample_video(package_id: int) -> bool:
+    """Generate a tiny placeholder mp4 at the path /renders/{id}/out.mp4 so
+    the book review page's video preview has something to play offline.
+
+    Uses ffmpeg (Remotion requires it anyway). Returns True on success,
+    False with a printed note if ffmpeg isn't installed or the call fails —
+    we never block seeding over a demo video.
+    """
+    if shutil.which("ffmpeg") is None:
+        print(
+            "  ⚠ ffmpeg not on PATH — skipping sample video. "
+            "The review page will still render; the <video> tag just 404s."
+        )
+        return False
+
+    renders_dir = Path(settings.renders_dir).resolve() / str(package_id)
+    renders_dir.mkdir(parents=True, exist_ok=True)
+    out = renders_dir / "out.mp4"
+
+    # 5-second 1080x1920 black video with a "Sample render" title — matches
+    # the tone of the seeded fantasy package (dark + gold). Small (<50 KB)
+    # on libx264 because there's nothing moving.
+    cmd = [
+        "ffmpeg",
+        "-hide_banner",
+        "-loglevel", "error",
+        "-y",
+        "-f", "lavfi",
+        "-i", "color=c=0x1a1a24:s=1080x1920:r=30:d=5",
+        "-vf",
+        (
+            "drawtext=text='Sample render':fontcolor=0xc2a657:"
+            "fontsize=96:x=(w-text_w)/2:y=(h-text_h)/2-40,"
+            "drawtext=text='(seeded, not a real render)':fontcolor=0xc2a657:"
+            "fontsize=42:x=(w-text_w)/2:y=(h-text_h)/2+80:alpha=0.7"
+        ),
+        "-c:v", "libx264",
+        "-pix_fmt", "yuv420p",
+        "-t", "5",
+        str(out),
+    ]
+    try:
+        subprocess.run(cmd, check=True, capture_output=True, timeout=60)
+    except subprocess.SubprocessError as exc:
+        print(f"  ⚠ ffmpeg sample render failed: {exc}")
+        return False
+    print(f"  ✓ sample video at {out}")
+    return True
 
 
 def main() -> None:
@@ -266,8 +329,13 @@ def main() -> None:
         action="store_true",
         help="Delete all books + sources + packages before seeding.",
     )
+    parser.add_argument(
+        "--no-video",
+        action="store_true",
+        help="Skip ffmpeg sample-video generation (faster; preview will 404).",
+    )
     args = parser.parse_args()
-    stats = run(wipe=args.wipe)
+    stats = run(wipe=args.wipe, with_video=not args.no_video)
     for k, v in stats.items():
         print(f"  {k}: {v}")
 
