@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { apiFetch } from "@/lib/api";
+import { apiFetch, rendersUrl } from "@/lib/api";
 
 type HookAlternative = { angle: string; text: string };
 
@@ -347,6 +347,15 @@ function PackageView({
           <div className="opacity-80">
             Rendered {lastRender.duration_seconds.toFixed(1)}s · {(lastRender.size_bytes / 1_048_576).toFixed(1)} MB · tone={lastRender.tone}
           </div>
+          {/* Inline preview via the backend's /renders static mount. */}
+          <video
+            key={`${pkg.id}-${lastRender.size_bytes}`}
+            src={rendersUrl(pkg.id)}
+            controls
+            playsInline
+            className="w-full max-w-[360px] rounded-md border border-white/10 bg-black"
+            style={{ aspectRatio: "9 / 16" }}
+          />
           <code className="block text-xs opacity-70">{lastRender.file_path}</code>
 
           <div className="border-t border-green-500/20 pt-3">

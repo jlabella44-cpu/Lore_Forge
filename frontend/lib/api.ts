@@ -16,3 +16,8 @@ export async function apiFetch<T>(
   }
   return res.json() as Promise<T>;
 }
+
+/** URL to an asset inside the backend's /renders static mount. */
+export function rendersUrl(packageId: number, filename = "out.mp4"): string {
+  return `${BASE_URL}/renders/${packageId}/${filename}`;
+}
