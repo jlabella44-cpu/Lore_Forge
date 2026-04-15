@@ -1,22 +1,23 @@
-"""Pluggable image generation layer.
+"""Image generation for video stills.
 
 Providers (select via IMAGE_PROVIDER env var):
-- `wanx`             — Alibaba Wanx via Dashscope. Default — uses existing Qwen
-                       key, has a free quota for new accounts.
-                       Models: wanx2.1-t2i-turbo (cheap) | wanx2.1-t2i-plus (better).
-- `dalle`            — OpenAI DALL-E 3. $0.04/image std. Already-keyed swap.
-- `imagen`           — Google Imagen 3 via Gemini API. Free tier on AI Studio.
-- `replicate`        — Replicate (FLUX.dev / SDXL). Pay per image.
-- `sdxl_local`       — Self-hosted SDXL/FLUX on local GPU. Free, needs setup.
-- `midjourney_manual`— No API. Emit prompts only; user pastes into Discord and
-                       uploads returned PNGs.
+- `wanx`             — Alibaba Wanx via Dashscope. Default — uses the same key
+                       as Qwen chat. ~$0.02-0.04 per image on wanx2.1-t2i-turbo.
+- `dalle`            — OpenAI DALL-E 3. Phase 2+ stub.
+- `imagen`           — Google Imagen 3. Phase 2+ stub.
+- `replicate`        — Replicate (FLUX / SDXL). Phase 2+ stub.
+- `sdxl_local`       — Self-hosted SDXL on a local GPU. Phase 2+ stub.
+- `midjourney_manual`— No API. Phase 2+ stub.
 
-All providers target **9:16** for shorts.
+All providers target 9:16 for shorts.
 """
 from __future__ import annotations
 
+from http import HTTPStatus
 from pathlib import Path
 from typing import Literal
+
+import httpx
 
 from app.config import settings
 
@@ -29,31 +30,75 @@ Provider = Literal[
     "midjourney_manual",
 ]
 
+# Default aspect → per-provider native size string. Remotion upscales to
+# 1080x1920 at render time, so native 9:16 output doesn't need to be HD.
+_WANX_SIZE_BY_ASPECT = {
+    "9:16": "720*1280",
+    "16:9": "1280*720",
+    "1:1": "1024*1024",
+}
 
-def generate(prompt: str, out_dir: str | Path, *, aspect: str = "9:16") -> str:
-    """Generate one image and return its local path.
 
-    Phase 2 work. The pipeline will call this 4-5 times per video (one per
-    visual prompt in the content package).
-    """
+def generate(prompt: str, out_path: str | Path, *, aspect: str = "9:16") -> str:
+    """Render one image to `out_path`. Returns the path as a string."""
     provider: Provider = settings.image_provider  # type: ignore[assignment]
+    out_path = Path(out_path)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
 
     if provider == "wanx":
-        # import dashscope; dashscope.ImageSynthesis.call(model="wanx2.1-t2i-turbo", ...)
-        raise NotImplementedError("Wanx / Dashscope image gen — Phase 2")
-    if provider == "dalle":
-        # from openai import OpenAI; client.images.generate(model="dall-e-3", ...)
-        raise NotImplementedError("DALL-E 3 — Phase 2")
-    if provider == "imagen":
-        # google-genai SDK
-        raise NotImplementedError("Imagen 3 — Phase 2")
-    if provider == "replicate":
-        # import replicate; replicate.run("black-forest-labs/flux-dev", ...)
-        raise NotImplementedError("Replicate FLUX — Phase 2")
-    if provider == "sdxl_local":
-        # diffusers pipeline
-        raise NotImplementedError("Local SDXL — Phase 2")
-    if provider == "midjourney_manual":
-        # No API; the pipeline surfaces the prompt and pauses for a dropped file.
-        raise NotImplementedError("Midjourney manual drop — Phase 2")
-    raise ValueError(f"Unknown image provider: {provider}")
+        _wanx_generate(prompt, out_path, aspect)
+    elif provider == "dalle":
+        raise NotImplementedError("DALL-E 3 — not yet wired (Phase 2+).")
+    elif provider == "imagen":
+        raise NotImplementedError("Imagen 3 — not yet wired (Phase 2+).")
+    elif provider == "replicate":
+        raise NotImplementedError("Replicate FLUX — not yet wired (Phase 2+).")
+    elif provider == "sdxl_local":
+        raise NotImplementedError("Local SDXL — not yet wired (Phase 2+).")
+    elif provider == "midjourney_manual":
+        raise NotImplementedError(
+            "Midjourney has no API — use IMAGE_PROVIDER=wanx or copy "
+            "prompts into Discord manually."
+        )
+    else:
+        raise ValueError(f"Unknown image provider: {provider!r}")
+
+    return str(out_path)
+
+
+# ---------------------------------------------------------------------------
+
+
+def _wanx_generate(prompt: str, out_path: Path, aspect: str) -> None:
+    """Dashscope → Wanx t2i → download the generated image to `out_path`.
+
+    Dashscope returns a short-lived URL; we fetch it immediately and persist
+    to disk so the renderer has a stable local path.
+    """
+    from dashscope import ImageSynthesis
+
+    if not settings.dashscope_api_key:
+        raise RuntimeError("DASHSCOPE_API_KEY is not set")
+
+    size = _WANX_SIZE_BY_ASPECT.get(aspect, _WANX_SIZE_BY_ASPECT["9:16"])
+    rsp = ImageSynthesis.call(
+        api_key=settings.dashscope_api_key,
+        model="wanx2.1-t2i-turbo",
+        prompt=prompt,
+        n=1,
+        size=size,
+    )
+    if rsp.status_code != HTTPStatus.OK:
+        raise RuntimeError(
+            f"Wanx error {rsp.status_code}: {getattr(rsp, 'code', '?')} "
+            f"{getattr(rsp, 'message', '')}"
+        )
+
+    results = getattr(rsp.output, "results", None) or []
+    if not results:
+        raise RuntimeError("Wanx returned no image URL")
+    url = results[0].url
+
+    resp = httpx.get(url, timeout=60.0)
+    resp.raise_for_status()
+    out_path.write_bytes(resp.content)
