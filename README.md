@@ -8,6 +8,12 @@ Reels, and Threads.
 **Posture:** solo + local-first, shorts-only. SQLite for dev, Postgres-ready.
 Every expensive step is behind a pluggable provider with a free/cheap default.
 
+> **TODO (when back at your machine):** run `./scripts/setup_env.sh` to pull
+> the shared Anthropic / OpenAI / Dashscope keys from `~/listingjet/.env`
+> (or pass a different path as `$1`). This avoids maintaining two copies of
+> the same keys. The script is idempotent and only touches those three
+> variables — NYT / Firecrawl / affiliate tags stay whatever you set.
+
 ## Layout
 
 ```
