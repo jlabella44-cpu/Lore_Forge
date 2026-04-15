@@ -7,12 +7,15 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.db import init_db
+from app.observability import configure_logging, get_logger
 from app.routers import analytics, books, discover, generate, publish
 from app.scheduler import register_jobs, scheduler
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    configure_logging()
+    get_logger("startup").info("Lore Forge API booting")
     init_db()
     register_jobs()
     scheduler.start()
@@ -20,6 +23,7 @@ async def lifespan(_: FastAPI):
         yield
     finally:
         scheduler.shutdown(wait=False)
+        get_logger("startup").info("Lore Forge API stopped")
 
 
 app = FastAPI(title="Lore Forge API", version="0.1.0", lifespan=lifespan)

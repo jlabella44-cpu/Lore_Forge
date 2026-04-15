@@ -25,6 +25,7 @@ from pathlib import Path
 from sqlalchemy.orm import object_session
 
 from app.config import settings
+from app.observability import log_call
 from app.services import images, tts, whisper
 
 # Book genre → video tone.
@@ -78,6 +79,24 @@ def render_package(package, book) -> dict:
     work_dir = Path(settings.renders_dir).resolve() / str(package.id)
     work_dir.mkdir(parents=True, exist_ok=True)
 
+    # The outer log_call wraps the whole pipeline so the summary line shows
+    # total wall-clock; inner service-layer log_calls show per-stage timing.
+    return _render_with_log(package, book, scenes_in, tone, work_dir)
+
+
+def _render_with_log(package, book, scenes_in, tone, work_dir) -> dict:
+    with log_call(
+        "renderer.render_package",
+        package_id=package.id,
+        book_id=book.id,
+        tone=tone,
+        scene_count=len(scenes_in),
+    ) as ctx:
+        return _render_inner(package, book, scenes_in, tone, work_dir, ctx)
+
+
+def _render_inner(package, book, scenes_in, tone, work_dir, ctx) -> dict:
+
     # 1. Narration
     narration_path = work_dir / "narration.mp3"
     tts.synthesize(package.narration, tone, narration_path)
@@ -108,6 +127,9 @@ def render_package(package, book) -> dict:
         package.section_word_counts, narration_seconds
     )
 
+    ctx["narration_seconds"] = round(narration_seconds, 2)
+    ctx["total_seconds"] = round(total_seconds, 2)
+
     # 5. Music (optional)
     music_path = pick_music_track(tone)
 
@@ -137,12 +159,15 @@ def render_package(package, book) -> dict:
 
     # 7. Render
     out_mp4 = work_dir / "out.mp4"
-    _run_remotion(props_path, out_mp4)
+    with log_call("renderer.remotion_cli", package_id=package.id):
+        _run_remotion(props_path, out_mp4)
 
+    size_bytes = out_mp4.stat().st_size
+    ctx["size_mb"] = round(size_bytes / 1_048_576, 2)
     return {
         "file_path": str(out_mp4),
         "duration_seconds": total_seconds,
-        "size_bytes": out_mp4.stat().st_size,
+        "size_bytes": size_bytes,
         "tone": tone,
         "work_dir": str(work_dir),
     }

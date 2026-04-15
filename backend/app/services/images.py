@@ -20,6 +20,7 @@ from typing import Literal
 import httpx
 
 from app.config import settings
+from app.observability import log_call
 
 Provider = Literal[
     "wanx",
@@ -45,23 +46,29 @@ def generate(prompt: str, out_path: str | Path, *, aspect: str = "9:16") -> str:
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if provider == "wanx":
-        _wanx_generate(prompt, out_path, aspect)
-    elif provider == "dalle":
-        raise NotImplementedError("DALL-E 3 — not yet wired (Phase 2+).")
-    elif provider == "imagen":
-        raise NotImplementedError("Imagen 3 — not yet wired (Phase 2+).")
-    elif provider == "replicate":
-        raise NotImplementedError("Replicate FLUX — not yet wired (Phase 2+).")
-    elif provider == "sdxl_local":
-        raise NotImplementedError("Local SDXL — not yet wired (Phase 2+).")
-    elif provider == "midjourney_manual":
-        raise NotImplementedError(
-            "Midjourney has no API — use IMAGE_PROVIDER=wanx or copy "
-            "prompts into Discord manually."
-        )
-    else:
-        raise ValueError(f"Unknown image provider: {provider!r}")
+    with log_call(
+        "images.generate",
+        provider=provider,
+        aspect=aspect,
+        out=out_path.name,
+    ):
+        if provider == "wanx":
+            _wanx_generate(prompt, out_path, aspect)
+        elif provider == "dalle":
+            raise NotImplementedError("DALL-E 3 — not yet wired (Phase 2+).")
+        elif provider == "imagen":
+            raise NotImplementedError("Imagen 3 — not yet wired (Phase 2+).")
+        elif provider == "replicate":
+            raise NotImplementedError("Replicate FLUX — not yet wired (Phase 2+).")
+        elif provider == "sdxl_local":
+            raise NotImplementedError("Local SDXL — not yet wired (Phase 2+).")
+        elif provider == "midjourney_manual":
+            raise NotImplementedError(
+                "Midjourney has no API — use IMAGE_PROVIDER=wanx or copy "
+                "prompts into Discord manually."
+            )
+        else:
+            raise ValueError(f"Unknown image provider: {provider!r}")
 
     return str(out_path)
 

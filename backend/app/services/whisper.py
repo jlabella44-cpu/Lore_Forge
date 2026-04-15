@@ -13,6 +13,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from app.config import settings
+from app.observability import log_call
 
 
 @lru_cache(maxsize=1)
@@ -30,15 +31,17 @@ def transcribe_words(mp3_path: str | Path) -> list[dict]:
     Returns an empty list if Whisper returned no words (e.g. a silent clip).
     """
     client = _openai_client()
-    with open(mp3_path, "rb") as fh:
-        resp = client.audio.transcriptions.create(
-            model="whisper-1",
-            file=fh,
-            response_format="verbose_json",
-            timestamp_granularities=["word"],
-        )
-    words = getattr(resp, "words", None) or []
-    return [
-        {"word": w.word, "start": float(w.start), "end": float(w.end)}
-        for w in words
-    ]
+    with log_call("whisper.transcribe", path=Path(mp3_path).name) as ctx:
+        with open(mp3_path, "rb") as fh:
+            resp = client.audio.transcriptions.create(
+                model="whisper-1",
+                file=fh,
+                response_format="verbose_json",
+                timestamp_granularities=["word"],
+            )
+        words = getattr(resp, "words", None) or []
+        ctx["words"] = len(words)
+        return [
+            {"word": w.word, "start": float(w.start), "end": float(w.end)}
+            for w in words
+        ]

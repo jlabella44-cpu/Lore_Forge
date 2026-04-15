@@ -21,6 +21,7 @@ from functools import lru_cache
 from typing import Any
 
 from app.config import settings
+from app.observability import log_call
 
 SECTIONS: list[str] = [
     "hook",
@@ -318,20 +319,21 @@ def _dispatch(
     """role: 'script' → SCRIPT_PROVIDER, 'meta' → META_PROVIDER."""
     provider = settings.script_provider if role == "script" else settings.meta_provider
 
-    if provider == "claude":
-        return _claude_call(system, user, tool_name, schema)
-    if provider == "openai":
-        model = (
-            settings.openai_script_model
-            if role == "script"
-            else settings.openai_meta_model
-        )
-        return _openai_compat_call(_openai_client(), model, system, user, schema)
-    if provider == "qwen":
-        return _openai_compat_call(
-            _qwen_client(), settings.qwen_model, system, user, schema
-        )
-    raise ValueError(f"Unknown LLM provider: {provider!r}")
+    with log_call(f"llm.{tool_name}", role=role, provider=provider):
+        if provider == "claude":
+            return _claude_call(system, user, tool_name, schema)
+        if provider == "openai":
+            model = (
+                settings.openai_script_model
+                if role == "script"
+                else settings.openai_meta_model
+            )
+            return _openai_compat_call(_openai_client(), model, system, user, schema)
+        if provider == "qwen":
+            return _openai_compat_call(
+                _qwen_client(), settings.qwen_model, system, user, schema
+            )
+        raise ValueError(f"Unknown LLM provider: {provider!r}")
 
 
 # ---------------------------------------------------------------------------

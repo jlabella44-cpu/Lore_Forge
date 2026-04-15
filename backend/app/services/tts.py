@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Literal
 
 from app.config import settings
+from app.observability import log_call
 
 Provider = Literal["openai", "kokoro", "dashscope", "elevenlabs"]
 
@@ -42,16 +43,23 @@ def synthesize(narration: str, tone: str, out_path: str | Path) -> str:
 
     text = clean_narration_for_tts(narration)
 
-    if provider == "openai":
-        _openai_synthesize(text, voice, out_path)
-    elif provider == "kokoro":
-        raise NotImplementedError("Kokoro TTS — not yet wired (Phase 2+).")
-    elif provider == "dashscope":
-        raise NotImplementedError("Dashscope CosyVoice — not yet wired (Phase 2+).")
-    elif provider == "elevenlabs":
-        raise NotImplementedError("ElevenLabs TTS — not yet wired (Phase 2+).")
-    else:
-        raise ValueError(f"Unknown TTS provider: {provider!r}")
+    with log_call(
+        "tts.synthesize",
+        provider=provider,
+        tone=tone,
+        voice=voice,
+        chars=len(text),
+    ):
+        if provider == "openai":
+            _openai_synthesize(text, voice, out_path)
+        elif provider == "kokoro":
+            raise NotImplementedError("Kokoro TTS — not yet wired (Phase 2+).")
+        elif provider == "dashscope":
+            raise NotImplementedError("Dashscope CosyVoice — not yet wired (Phase 2+).")
+        elif provider == "elevenlabs":
+            raise NotImplementedError("ElevenLabs TTS — not yet wired (Phase 2+).")
+        else:
+            raise ValueError(f"Unknown TTS provider: {provider!r}")
 
     return str(out_path)
 
