@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { apiFetch, pollJob, rendersUrl } from "@/lib/api";
+import { apiFetch, CostSummary, dollars, pollJob, rendersUrl } from "@/lib/api";
 
 type HookAlternative = { angle: string; text: string };
 
@@ -82,6 +82,8 @@ export default function BookReviewPage({
   const [approving, setApproving] = useState(false);
   const [regenNote, setRegenNote] = useState("");
 
+  const [costs, setCosts] = useState<CostSummary | null>(null);
+
   const refresh = async () => {
     setError(null);
     try {
@@ -92,6 +94,10 @@ export default function BookReviewPage({
     } catch (e) {
       setError(String(e));
     }
+    // Cost lookup is best-effort; don't fail the page if it breaks.
+    apiFetch<CostSummary>("/analytics/cost?days=365")
+      .then(setCosts)
+      .catch(() => {});
   };
 
   useEffect(() => {
@@ -271,6 +277,10 @@ export default function BookReviewPage({
                 onPublish={publish}
                 publishing={publishing}
                 published={published}
+                costCents={
+                  costs?.per_package.find((p) => p.package_id === active.id)
+                    ?.cents ?? null
+                }
               />
             )}
             <RegenerateForm
@@ -318,6 +328,7 @@ function PackageView({
   onPublish,
   publishing,
   published,
+  costCents,
 }: {
   pkg: Package;
   onApprove: (id: number) => void;
@@ -334,6 +345,7 @@ function PackageView({
   onPublish: (id: number, platform: string) => void;
   publishing: string | null;
   published: Record<string, PublishStatus>;
+  costCents: number | null;
 }) {
   return (
     <div className="space-y-6">
@@ -343,6 +355,14 @@ function PackageView({
           {pkg.is_approved && (
             <span className="ml-2 rounded-full bg-green-500/20 px-2 py-0.5 text-xs text-green-200">
               approved
+            </span>
+          )}
+          {costCents !== null && costCents > 0 && (
+            <span
+              title="Total spent on LLM + TTS + images + Whisper calls for this revision"
+              className="ml-2 rounded-full bg-white/10 px-2 py-0.5 text-xs tabular-nums"
+            >
+              {dollars(costCents)} spent
             </span>
           )}
           {pkg.regenerate_note && (

@@ -22,6 +22,28 @@ export function rendersUrl(packageId: number, filename = "out.mp4"): string {
   return `${BASE_URL}/renders/${packageId}/${filename}`;
 }
 
+export type CostSummary = {
+  total_cents: number;
+  total_usd: string;
+  by_call_name: Record<string, { count: number; cents: number }>;
+  by_provider: Record<string, number>;
+  per_package: Array<{
+    package_id: number;
+    book_id: number;
+    book_title: string;
+    revision_number: number;
+    cents: number;
+  }>;
+  since: string;
+  days: number;
+  record_count: number;
+};
+
+/** Format a cents value as "$X.XX". */
+export function dollars(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
 export type Job = {
   id: number;
   kind: string;
