@@ -1,7 +1,13 @@
-"""Content package generation + approval."""
+"""Content package generation + approval.
+
+Synchronous by default (existing behavior). Pass `?async=true` on the
+/generate and /render endpoints to get a 202 + job_id back and poll the
+result via `GET /jobs/{id}`. Phase 3 can flip the frontend to always use
+the async path once the polling UI is the default.
+"""
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -9,131 +15,83 @@ from app.config import settings
 from app.db import get_db
 from app.models import Book, ContentPackage
 from app.observability import log_call
-from app.services import amazon, llm, renderer
+from app.services import amazon, jobs, llm, renderer
 
 router = APIRouter()
 
+
+# ---------------------------------------------------------------------------
+# POST /books/{id}/generate[?async=true]
+# ---------------------------------------------------------------------------
 
 @router.post("/books/{book_id}/generate")
 def generate_package(
     book_id: int,
     payload: dict | None = None,
+    response: Response = None,  # type: ignore[assignment]
     db: Session = Depends(get_db),
+    asynchronous: bool = Query(False, alias="async"),
 ) -> dict:
-    """Create a new ContentPackage revision. Body may be `{"note": "..."}`
-    to steer a regenerate."""
+    """Create a new ContentPackage revision. Body: {"note": "..."} optional.
+
+    Synchronous by default. Pass `?async=true` to enqueue and get back
+    `{job_id, status: "queued"}` with HTTP 202 — poll GET /jobs/{job_id}.
+    """
     book = db.get(Book, book_id)
     if book is None:
         raise HTTPException(status_code=404, detail="Book not found")
 
     note = (payload or {}).get("note")
-    genre = book.genre_override or book.genre or "other"
 
-    previous_status = book.status
-    book.status = "generating"
-    db.commit()
-
-    try:
-        with log_call(
-            "generate.pipeline",
+    if asynchronous:
+        job_id = jobs.enqueue(
+            "generate",
+            book_id,
+            _generate_worker,
             book_id=book_id,
-            genre=genre,
-            has_note=bool(note),
-        ):
-            # Stage 1 — hook portfolio. Claude generates 3 angles and picks one.
-            hooks = llm.generate_hooks(
-                title=book.title,
-                author=book.author,
-                description=book.description,
-                genre=genre,
-            )
-            chosen_hook_text = hooks["alternatives"][hooks["chosen_index"]]["text"]
+            note=note,
+        )
+        if response is not None:
+            response.status_code = 202
+        return {"job_id": job_id, "status": "queued"}
 
-            # Stage 2 — script + narration + section_word_counts.
-            script_pkg = llm.generate_script(
-                title=book.title,
-                author=book.author,
-                description=book.description,
-                genre=genre,
-                chosen_hook=chosen_hook_text,
-                note=note,
-            )
+    return _generate_sync(db, book, book_id, note)
 
-            # Stage 3 — one image prompt per section.
-            scene_pkg = llm.generate_scene_prompts(
-                script=script_pkg["script"], genre=genre
-            )
 
-            # Stage 4 — per-platform titles + hashtags.
-            meta = llm.generate_platform_meta(
-                script=script_pkg["script"], genre=genre
-            )
-
-            affiliate_amazon, affiliate_bookshop = _affiliate_links(book.isbn)
-
-            last_revision = (
-                db.query(func.max(ContentPackage.revision_number))
-                .filter(ContentPackage.book_id == book_id)
-                .scalar()
-                or 0
-            )
-            package = ContentPackage(
-                book_id=book_id,
-                revision_number=last_revision + 1,
-                script=script_pkg["script"],
-                narration=script_pkg["narration"],
-                section_word_counts=script_pkg["section_word_counts"],
-                hook_alternatives=hooks["alternatives"],
-                chosen_hook_index=hooks["chosen_index"],
-                visual_prompts=scene_pkg["scenes"],
-                titles=meta["titles"],
-                hashtags=meta["hashtags"],
-                affiliate_amazon=affiliate_amazon,
-                affiliate_bookshop=affiliate_bookshop,
-                regenerate_note=note,
-                is_approved=False,
-            )
-            db.add(package)
-            book.status = "review"
-            db.commit()
-            db.refresh(package)
-            return {
-                "package_id": package.id,
-                "revision_number": package.revision_number,
-            }
-
-    except Exception as exc:
-        db.rollback()
-        # Re-read book in a fresh txn and restore the prior status
-        book = db.get(Book, book_id)
-        if book is not None:
-            book.status = previous_status
-            db.commit()
-        raise HTTPException(status_code=502, detail=f"Generation failed: {exc}") from exc
-
+# ---------------------------------------------------------------------------
+# POST /packages/{id}/render[?async=true]
+# ---------------------------------------------------------------------------
 
 @router.post("/packages/{package_id}/render")
 def render_package(
     package_id: int,
+    response: Response = None,  # type: ignore[assignment]
     db: Session = Depends(get_db),
+    asynchronous: bool = Query(False, alias="async"),
 ) -> dict:
-    """Kick off the full render pipeline for an approved package.
+    """Run the full render pipeline for an approved package.
 
-    Synchronous for Phase 2 — renders take ~1-3 minutes. If this turns into
-    a UX problem the call chain is small enough to move into a FastAPI
-    BackgroundTask without restructuring.
+    Synchronous by default (blocks 1-3 minutes on real providers). Pass
+    `?async=true` for the 202 + poll flow.
     """
     package = db.get(ContentPackage, package_id)
     if package is None:
         raise HTTPException(status_code=404, detail="Package not found")
     if not package.is_approved:
         raise HTTPException(
-            status_code=400,
-            detail="Package must be approved before rendering",
+            status_code=400, detail="Package must be approved before rendering"
         )
     book = db.get(Book, package.book_id)
     if book is None:
         raise HTTPException(status_code=404, detail="Book not found")
+
+    if asynchronous:
+        job_id = jobs.enqueue(
+            "render", package_id, _render_worker, package_id=package_id
+        )
+        if response is not None:
+            response.status_code = 202
+        return {"job_id": job_id, "status": "queued"}
 
     try:
         result = renderer.render_package(package, book)
@@ -141,6 +99,10 @@ def render_package(
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"package_id": package_id, **result}
 
+
+# ---------------------------------------------------------------------------
+# POST /packages/{id}/approve
+# ---------------------------------------------------------------------------
 
 @router.post("/packages/{package_id}/approve")
 def approve_package(package_id: int, db: Session = Depends(get_db)) -> dict:
@@ -169,14 +131,156 @@ def approve_package(package_id: int, db: Session = Depends(get_db)) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Workers — the sync path calls the same logic inline; the async path runs
+# it inside jobs.job_session which owns the Job row's lifecycle.
+# ---------------------------------------------------------------------------
+
+def _generate_sync(db: Session, book: Book, book_id: int, note: str | None) -> dict:
+    genre = book.genre_override or book.genre or "other"
+    previous_status = book.status
+    book.status = "generating"
+    db.commit()
+    try:
+        result = _generate_core(db, book, genre, note)
+        book.status = "review"
+        db.commit()
+        return {
+            "package_id": result["package_id"],
+            "revision_number": result["revision_number"],
+        }
+    except Exception as exc:
+        db.rollback()
+        book = db.get(Book, book_id)
+        if book is not None:
+            book.status = previous_status
+            db.commit()
+        raise HTTPException(status_code=502, detail=f"Generation failed: {exc}") from exc
+
+
+def _generate_worker(job_id: int, *, book_id: int, note: str | None) -> None:
+    with jobs.job_session(job_id) as (db, set_progress):
+        book = db.get(Book, book_id)
+        if book is None:
+            raise RuntimeError(f"Book {book_id} not found")
+        genre = book.genre_override or book.genre or "other"
+        previous_status = book.status
+        book.status = "generating"
+        db.commit()
+        try:
+            set_progress("Stage 1/4: hook portfolio")
+            # Use a fresh nested flow that emits progress between stages.
+            result = _generate_core_with_progress(db, book, genre, note, set_progress)
+            book.status = "review"
+            db.commit()
+            set_progress.result(result)
+        except Exception:
+            db.rollback()
+            book = db.get(Book, book_id)
+            if book is not None:
+                book.status = previous_status
+                db.commit()
+            raise
+
+
+def _render_worker(job_id: int, *, package_id: int) -> None:
+    with jobs.job_session(job_id) as (db, set_progress):
+        package = db.get(ContentPackage, package_id)
+        if package is None:
+            raise RuntimeError(f"Package {package_id} not found")
+        book = db.get(Book, package.book_id)
+        if book is None:
+            raise RuntimeError(f"Book {package.book_id} not found")
+        set_progress("rendering: TTS + images + remotion")
+        result = renderer.render_package(package, book)
+        set_progress.result({"package_id": package_id, **result})
+
+
+# ---------------------------------------------------------------------------
+# Core generation logic (shared by both paths)
+# ---------------------------------------------------------------------------
+
+def _generate_core(db: Session, book: Book, genre: str, note: str | None) -> dict:
+    return _generate_core_with_progress(db, book, genre, note, lambda _msg: None)
+
+
+def _generate_core_with_progress(
+    db: Session,
+    book: Book,
+    genre: str,
+    note: str | None,
+    set_progress,
+) -> dict:
+    with log_call(
+        "generate.pipeline",
+        book_id=book.id,
+        genre=genre,
+        has_note=bool(note),
+    ):
+        set_progress("Stage 1/4: hook portfolio")
+        hooks = llm.generate_hooks(
+            title=book.title,
+            author=book.author,
+            description=book.description,
+            genre=genre,
+        )
+        chosen_hook_text = hooks["alternatives"][hooks["chosen_index"]]["text"]
+
+        set_progress("Stage 2/4: writing script")
+        script_pkg = llm.generate_script(
+            title=book.title,
+            author=book.author,
+            description=book.description,
+            genre=genre,
+            chosen_hook=chosen_hook_text,
+            note=note,
+        )
+
+        set_progress("Stage 3/4: scene prompts")
+        scene_pkg = llm.generate_scene_prompts(
+            script=script_pkg["script"], genre=genre
+        )
+
+        set_progress("Stage 4/4: per-platform meta")
+        meta = llm.generate_platform_meta(
+            script=script_pkg["script"], genre=genre
+        )
+
+        affiliate_amazon, affiliate_bookshop = _affiliate_links(book.isbn)
+
+        last_revision = (
+            db.query(func.max(ContentPackage.revision_number))
+            .filter(ContentPackage.book_id == book.id)
+            .scalar()
+            or 0
+        )
+        package = ContentPackage(
+            book_id=book.id,
+            revision_number=last_revision + 1,
+            script=script_pkg["script"],
+            narration=script_pkg["narration"],
+            section_word_counts=script_pkg["section_word_counts"],
+            hook_alternatives=hooks["alternatives"],
+            chosen_hook_index=hooks["chosen_index"],
+            visual_prompts=scene_pkg["scenes"],
+            titles=meta["titles"],
+            hashtags=meta["hashtags"],
+            affiliate_amazon=affiliate_amazon,
+            affiliate_bookshop=affiliate_bookshop,
+            regenerate_note=note,
+            is_approved=False,
+        )
+        db.add(package)
+        db.flush()
+        db.refresh(package)
+        return {
+            "package_id": package.id,
+            "revision_number": package.revision_number,
+        }
 
 
 def _affiliate_links(isbn: str | None) -> tuple[str | None, str | None]:
-    """Best-effort affiliate link construction. Missing keys or a failed ASIN
-    lookup just leave the corresponding field null."""
     if not isbn:
         return None, None
-
     amazon_url = None
     if settings.amazon_associate_tag:
         try:
@@ -185,12 +289,10 @@ def _affiliate_links(isbn: str | None) -> tuple[str | None, str | None]:
                 amazon_url = amazon.build_affiliate_url(asin)
         except Exception:
             pass
-
     bookshop_url = None
     if settings.bookshop_affiliate_id:
         try:
             bookshop_url = amazon.build_bookshop_url(isbn)
         except Exception:
             pass
-
     return amazon_url, bookshop_url

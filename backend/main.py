@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from app.config import settings
 from app.db import init_db
 from app.observability import configure_logging, get_logger
-from app.routers import analytics, books, discover, generate, publish
+from app.routers import analytics, books, discover, generate, jobs, publish
 from app.scheduler import register_jobs, scheduler
 
 
@@ -47,6 +47,7 @@ app.include_router(books.router, prefix="/books", tags=["books"])
 app.include_router(generate.router, tags=["generate"])
 app.include_router(publish.router, prefix="/publish", tags=["publish"])
 app.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
+app.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
 
 # Serve rendered mp4s (and the intermediate assets that produced them) at
 # /renders/{package_id}/out.mp4 — lets the frontend preview without piping

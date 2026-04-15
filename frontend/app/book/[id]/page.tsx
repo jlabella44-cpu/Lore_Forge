@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 
-import { apiFetch, rendersUrl } from "@/lib/api";
+import { apiFetch, pollJob, rendersUrl } from "@/lib/api";
 
 type HookAlternative = { angle: string; text: string };
 
@@ -99,21 +99,35 @@ export default function BookReviewPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
 
+  const [generateStage, setGenerateStage] = useState<string | null>(null);
+
   const generatePackage = async (note?: string) => {
     setGenerating(true);
+    setGenerateStage("queued");
     setError(null);
     try {
-      const res = await apiFetch<{ package_id: number; revision_number: number }>(
-        `/books/${params.id}/generate`,
+      const queued = await apiFetch<{ job_id: number; status: string }>(
+        `/books/${params.id}/generate?async=true`,
         { method: "POST", body: JSON.stringify({ note: note ?? null }) },
       );
-      setActiveId(res.package_id); // jump to the new revision
+      const job = await pollJob(queued.job_id, (j) =>
+        setGenerateStage(j.message ?? j.status),
+      );
+      if (job.status === "failed") {
+        throw new Error(job.error ?? "Generation failed");
+      }
+      const result = job.result as {
+        package_id: number;
+        revision_number: number;
+      };
+      setActiveId(result.package_id);
       setRegenNote("");
       await refresh();
     } catch (e) {
       setError(String(e));
     } finally {
       setGenerating(false);
+      setGenerateStage(null);
     }
   };
 
@@ -131,6 +145,7 @@ export default function BookReviewPage({
   };
 
   const [rendering, setRendering] = useState(false);
+  const [renderStage, setRenderStage] = useState<string | null>(null);
   const [lastRender, setLastRender] = useState<{
     file_path: string;
     duration_seconds: number;
@@ -140,21 +155,34 @@ export default function BookReviewPage({
 
   const render = async (packageId: number) => {
     setRendering(true);
+    setRenderStage("queued");
     setError(null);
     setLastRender(null);
     try {
-      const res = await apiFetch<{
-        package_id: number;
-        file_path: string;
-        duration_seconds: number;
-        size_bytes: number;
-        tone: string;
-      }>(`/packages/${packageId}/render`, { method: "POST" });
-      setLastRender(res);
+      const queued = await apiFetch<{ job_id: number; status: string }>(
+        `/packages/${packageId}/render?async=true`,
+        { method: "POST" },
+      );
+      const job = await pollJob(queued.job_id, (j) =>
+        setRenderStage(j.message ?? j.status),
+      );
+      if (job.status === "failed") {
+        throw new Error(job.error ?? "Render failed");
+      }
+      setLastRender(
+        job.result as {
+          package_id: number;
+          file_path: string;
+          duration_seconds: number;
+          size_bytes: number;
+          tone: string;
+        },
+      );
     } catch (e) {
       setError(String(e));
     } finally {
       setRendering(false);
+      setRenderStage(null);
     }
   };
 
@@ -238,6 +266,7 @@ export default function BookReviewPage({
                 approving={approving}
                 onRender={render}
                 rendering={rendering}
+                renderStage={renderStage}
                 lastRender={lastRender}
                 onPublish={publish}
                 publishing={publishing}
@@ -249,6 +278,7 @@ export default function BookReviewPage({
               setNote={setRegenNote}
               onSubmit={() => generatePackage(regenNote || undefined)}
               generating={generating}
+              generateStage={generateStage}
             />
           </div>
           <aside>
@@ -283,6 +313,7 @@ function PackageView({
   approving,
   onRender,
   rendering,
+  renderStage,
   lastRender,
   onPublish,
   publishing,
@@ -293,6 +324,7 @@ function PackageView({
   approving: boolean;
   onRender: (id: number) => void;
   rendering: boolean;
+  renderStage: string | null;
   lastRender: {
     file_path: string;
     duration_seconds: number;
@@ -327,7 +359,9 @@ function PackageView({
               className="rounded-md bg-white/10 px-4 py-2 text-sm hover:bg-white/20 disabled:opacity-50"
               title="Synthesize narration, generate images, render mp4"
             >
-              {rendering ? "Rendering…" : "Render Video"}
+              {rendering
+                ? `Rendering… ${renderStage ?? ""}`.trim()
+                : "Render Video"}
             </button>
           )}
           {!pkg.is_approved && (
@@ -629,11 +663,13 @@ function RegenerateForm({
   setNote,
   onSubmit,
   generating,
+  generateStage,
 }: {
   note: string;
   setNote: (v: string) => void;
   onSubmit: () => void;
   generating: boolean;
+  generateStage: string | null;
 }) {
   return (
     <section className="mt-6 rounded-lg border border-white/10 p-6">
@@ -644,13 +680,18 @@ function RegenerateForm({
         placeholder='Optional: tell Claude how to change it. "Make the hook darker." "Less dramatic." "More social proof."'
         className="mb-3 h-24 w-full rounded-md border border-white/10 bg-transparent p-3 text-sm"
       />
-      <button
-        onClick={onSubmit}
-        disabled={generating}
-        className="rounded-md bg-white/10 px-4 py-2 text-sm hover:bg-white/20 disabled:opacity-50"
-      >
-        {generating ? "Generating…" : note ? "Regenerate with note" : "Regenerate"}
-      </button>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={onSubmit}
+          disabled={generating}
+          className="rounded-md bg-white/10 px-4 py-2 text-sm hover:bg-white/20 disabled:opacity-50"
+        >
+          {generating ? "Generating…" : note ? "Regenerate with note" : "Regenerate"}
+        </button>
+        {generating && generateStage && (
+          <span className="text-xs opacity-70">{generateStage}</span>
+        )}
+      </div>
     </section>
   );
 }
