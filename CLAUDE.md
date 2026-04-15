@@ -12,14 +12,30 @@
 - DB Agent: ONLY touches /db. Coordinate with Backend on schema changes.
 - Test Agent: ONLY touches /tests. Reads all other dirs, writes none.
 
+## Posture
+Solo + local-first. Shorts-only (TikTok, YouTube Shorts, Instagram Reels, Threads).
+No YouTube long-form. Every cost center has a free/cheap default provider.
+
 ## Stack
 - Frontend: Next.js 14, Tailwind CSS, shadcn/ui
 - Backend: FastAPI, Python 3.11, SQLAlchemy
 - Database: SQLite (dev) → PostgreSQL (prod), Alembic migrations
 - Orchestration: APScheduler (in-process)
-- AI: Anthropic Claude API (claude-sonnet-4-20250514)
-- Voice: ElevenLabs API (Phase 2)
-- Publishing: YouTube Data API v3, TikTok Content Posting API, Meta Graph (IG Reels + Threads) (Phase 2)
+- Video assembly (Phase 2): Remotion
+
+## Provider matrix (all pluggable via env)
+| Role | Default | Swaps |
+|---|---|---|
+| Script + image prompts | Claude Sonnet 4 | OpenAI · Qwen |
+| Classify + titles/hashtags | Qwen Plus (Dashscope) | Claude · OpenAI |
+| TTS narration | OpenAI TTS | Kokoro (local, free) · Dashscope CosyVoice · ElevenLabs |
+| Image generation | Wanx (Dashscope) | DALL-E 3 · Imagen 3 · Replicate FLUX · Local SDXL · Midjourney (manual) |
+
+Env vars: `SCRIPT_PROVIDER`, `META_PROVIDER`, `TTS_PROVIDER`, `IMAGE_PROVIDER`.
+
+## Publish targets (Phase 2)
+TikTok · YouTube Shorts · Instagram Reels · Threads. Manual Approve click
+required in the dashboard before any upload — no auto-fire.
 
 ## Key Commands
 - Frontend: cd frontend && npm run dev

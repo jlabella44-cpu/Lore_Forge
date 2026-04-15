@@ -1,8 +1,12 @@
 # Lore Forge
 
-Automated book-content pipeline. Discover trending books → generate spoiler-free scripts, image prompts, narration, and per-platform metadata via Claude → review in a dashboard → assemble + publish short/long-form videos to YouTube, TikTok, YouTube Shorts, Instagram Reels, and Threads.
+Automated short-form book-content pipeline. Discover trending books → generate a
+90-sec script, image prompts, narration, and per-platform metadata → review in
+a dashboard → assemble + publish shorts to TikTok, YouTube Shorts, Instagram
+Reels, and Threads.
 
-**Posture:** solo + local-first. SQLite for dev, Postgres-ready for later.
+**Posture:** solo + local-first, shorts-only. SQLite for dev, Postgres-ready.
+Every expensive step is behind a pluggable provider with a free/cheap default.
 
 ## Layout
 
@@ -13,7 +17,7 @@ db/         Alembic migrations
 tests/      pytest + Playwright
 ```
 
-See [CLAUDE.md](./CLAUDE.md) for agent-ownership rules.
+See [CLAUDE.md](./CLAUDE.md) for agent-ownership rules and the provider matrix.
 
 ## Bootstrap
 
@@ -38,8 +42,26 @@ cd db
 alembic upgrade head
 ```
 
+## Provider defaults
+
+Cheapest working path using existing keys (Anthropic + OpenAI + Dashscope/Qwen):
+
+- **Script generation** — Claude Sonnet 4 (quality-sensitive)
+- **Genre / titles / hashtags** — Qwen Plus via Dashscope (cheap + formulaic)
+- **TTS narration** — OpenAI TTS (~$0.014/short)
+- **Image generation** — Alibaba Wanx via Dashscope (free quota on new accounts)
+
+All four are swappable via env vars — see [.env.example](./.env.example).
+
+**Expected spend for 50 shorts over 90 days:** single-digit dollars, assuming
+you stay on the default providers.
+
 ## Roadmap
 
-- **Phase 1** — Content engine for one book end-to-end (NYT source → Claude package → review/approve in UI).
-- **Phase 2** — Remotion video assembly → expand discovery sources → ElevenLabs narration → auto-publish (gated on manual Approve).
-- **Phase 3** — Analytics dashboard, A/B title testing, prompt-feedback loop.
+- **Phase 1** — Content engine end-to-end for one book. NYT source → Claude
+  package → dashboard review → approve. No uploads yet.
+- **Phase 2** — Remotion video assembly (per-tone template + free music
+  library) → expand discovery sources → TTS automation → publish to all four
+  short-form targets, still gated on manual Approve.
+- **Phase 3** — Analytics dashboard, A/B title testing, feedback loop from
+  performance into Claude prompts.

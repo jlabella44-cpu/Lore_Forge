@@ -8,27 +8,46 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Storage
+    # ---- Storage ----
     database_url: str = "sqlite:///./lore_forge.sqlite"
 
-    # AI / Content
+    # ---- LLM keys ----
     anthropic_api_key: str = ""
     claude_model: str = "claude-sonnet-4-20250514"
 
-    # Voice (Phase 2)
+    openai_api_key: str = ""
+    openai_script_model: str = "gpt-4o"
+    openai_meta_model: str = "gpt-4o-mini"
+
+    # Dashscope hosts both Qwen (text) and Wanx (images). Use the OpenAI-compatible
+    # endpoint for Qwen chat; the native `dashscope` SDK for Wanx images.
+    dashscope_api_key: str = ""
+    dashscope_base_url: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
+    qwen_model: str = "qwen-plus"
+
+    # ---- Provider routing ----
+    # SCRIPT_PROVIDER handles creative script + image prompts (quality-sensitive).
+    # META_PROVIDER handles classify + per-platform titles/hashtags (formulaic).
+    script_provider: str = "claude"          # claude | openai | qwen
+    meta_provider: str = "qwen"              # claude | openai | qwen
+    tts_provider: str = "openai"             # openai | kokoro | dashscope | elevenlabs
+    image_provider: str = "wanx"             # wanx | dalle | imagen | replicate | sdxl_local | midjourney_manual
+
+    # ---- Voice (optional upgrades) ----
     elevenlabs_api_key: str = ""
 
-    # Discovery
+    # ---- Discovery ----
     nyt_api_key: str = ""
     reddit_client_id: str = ""
     reddit_client_secret: str = ""
 
-    # Affiliate
+    # ---- Affiliate ----
     amazon_associate_tag: str = ""
     bookshop_affiliate_id: str = ""
     isbndb_api_key: str = ""
 
-    # Publishing (Phase 2)
+    # ---- Publishing (Phase 2) — shorts-only targets ----
+    # TikTok, YT Shorts (via Data API), IG Reels + Threads (via Meta Graph).
     youtube_client_id: str = ""
     youtube_client_secret: str = ""
     tiktok_client_key: str = ""
