@@ -489,3 +489,89 @@ def test_render_persists_metadata_and_flips_needs_rerender(client, approved_pack
     # show "last rendered N seconds ago" alongside the stale-warning.
     assert pkg["rendered_at"] is not None
     assert pkg["rendered_duration_seconds"] == 44.0
+
+
+# ---------- Book lifecycle: scheduled → rendered on render success ----------
+
+
+def _fake_render_triplet(tmp_path):
+    """TTS/image/remotion stubs shared across the lifecycle tests."""
+
+    def fake_tts(*a, **kw):
+        out = Path(a[2] if len(a) > 2 else kw["out_path"])
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"x")
+        return str(out)
+
+    def fake_image(*a, **kw):
+        out = Path(a[1] if len(a) > 1 else kw["out_path"])
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(b"x")
+        return str(out)
+
+    def fake_run(cmd, cwd, capture_output, text):
+        out_mp4 = Path(cmd[cmd.index("LoreForge") + 1])
+        out_mp4.parent.mkdir(parents=True, exist_ok=True)
+        out_mp4.write_bytes(b"x")
+        rv = MagicMock()
+        rv.returncode = 0
+        rv.stderr = ""
+        return rv
+
+    return fake_tts, fake_image, fake_run
+
+
+def test_render_transitions_book_scheduled_to_rendered(client, approved_package, tmp_path):
+    """Approve leaves book.status = scheduled; a successful render flips it
+    to rendered so the dashboard can filter 'approved + rendered, awaiting
+    publish'."""
+    pid = approved_package["package_id"]
+    book_id = approved_package["book_id"]
+
+    pre = client.get(f"/books/{book_id}").json()
+    assert pre["status"] == "scheduled"
+
+    fake_tts, fake_image, fake_run = _fake_render_triplet(tmp_path)
+    with (
+        patch("app.services.tts.synthesize", side_effect=fake_tts),
+        patch("app.services.images.generate", side_effect=fake_image),
+        patch("app.services.whisper.transcribe_words", return_value=[]),
+        patch("app.services.renderer.probe_duration", return_value=30.0),
+        patch("subprocess.run", side_effect=fake_run),
+    ):
+        assert client.post(f"/packages/{pid}/render").status_code == 200
+
+    post = client.get(f"/books/{book_id}").json()
+    assert post["status"] == "rendered"
+
+
+def test_rerender_does_not_clobber_published_status(client, approved_package, tmp_path):
+    """Re-rendering a live video shouldn't regress book.status from
+    published back to rendered."""
+    from app.db import SessionLocal
+    from app.models import Book
+
+    pid = approved_package["package_id"]
+    book_id = approved_package["book_id"]
+
+    # Simulate the book having been published after an earlier render.
+    db = SessionLocal()
+    try:
+        book = db.get(Book, book_id)
+        book.status = "published"
+        db.commit()
+    finally:
+        db.close()
+
+    fake_tts, fake_image, fake_run = _fake_render_triplet(tmp_path)
+    with (
+        patch("app.services.tts.synthesize", side_effect=fake_tts),
+        patch("app.services.images.generate", side_effect=fake_image),
+        patch("app.services.whisper.transcribe_words", return_value=[]),
+        patch("app.services.renderer.probe_duration", return_value=30.0),
+        patch("subprocess.run", side_effect=fake_run),
+    ):
+        assert client.post(f"/packages/{pid}/render").status_code == 200
+
+    post = client.get(f"/books/{book_id}").json()
+    assert post["status"] == "published"

@@ -23,7 +23,15 @@ class Book(Base):
     genre_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     genre_override: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
-    # Lifecycle: discovered → generating → review → scheduled → published
+    # Lifecycle: discovered → generating → review → scheduled → rendered → published
+    # Plus terminal side-states: `skipped` (hidden from the default queue).
+    # Transitions:
+    #   discover:         (new) → discovered
+    #   generate start:   discovered|review → generating
+    #   generate done:    generating → review (or revert to previous on failure)
+    #   approve package:  review → scheduled
+    #   render success:   scheduled → rendered  (no-op on published or other states)
+    #   publish success:  rendered → published
     status: Mapped[str] = mapped_column(
         String(32), default="discovered", server_default="discovered"
     )

@@ -184,6 +184,14 @@ def _render_inner(package, book, scenes_in, tone, work_dir, ctx) -> dict:
     package.rendered_duration_seconds = total_seconds
     package.rendered_size_bytes = size_bytes
     package.rendered_narration_hash = narration_hash(package.narration)
+
+    # 9. Advance the book's lifecycle state: scheduled → rendered. Only
+    # transition from "scheduled" — leave "published" alone (re-render of a
+    # live video shouldn't regress its status), and anything else (e.g.
+    # "review" if the approval flow shifts) is out of scope for renderer.
+    if book.status == "scheduled":
+        book.status = "rendered"
+
     session = object_session(package)
     if session is not None:
         session.commit()

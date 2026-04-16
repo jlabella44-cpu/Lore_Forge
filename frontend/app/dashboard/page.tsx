@@ -31,6 +31,8 @@ const STATUS_STYLES: Record<string, string> = {
   generating: "bg-amber-500/20 text-amber-200",
   review: "bg-blue-500/20 text-blue-200",
   scheduled: "bg-green-500/20 text-green-200",
+  // Approved + rendered, waiting on the Publish click.
+  rendered: "bg-teal-500/20 text-teal-200",
   published: "bg-emerald-600/30 text-emerald-200",
   skipped: "bg-white/5 text-white/50",
 };
@@ -40,6 +42,7 @@ const STATUSES = [
   "generating",
   "review",
   "scheduled",
+  "rendered",
   "published",
 ];
 
