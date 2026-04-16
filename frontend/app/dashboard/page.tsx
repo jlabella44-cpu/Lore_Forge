@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { apiFetch } from "@/lib/api";
 
@@ -32,25 +32,29 @@ const STATUS_STYLES: Record<string, string> = {
   review: "bg-blue-500/20 text-blue-200",
   scheduled: "bg-green-500/20 text-green-200",
   published: "bg-emerald-600/30 text-emerald-200",
+  skipped: "bg-white/5 text-white/50",
 };
 
 export default function DashboardPage() {
   const [books, setBooks] = useState<Book[] | null>(null);
   const [discovering, setDiscovering] = useState(false);
+  const [showSkipped, setShowSkipped] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = async () => {
+  const refresh = async (includeSkipped = showSkipped) => {
     setError(null);
     try {
-      setBooks(await apiFetch<Book[]>("/books"));
+      const query = includeSkipped ? "?include_skipped=true" : "";
+      setBooks(await apiFetch<Book[]>(`/books${query}`));
     } catch (e) {
       setError(String(e));
     }
   };
 
   useEffect(() => {
-    refresh();
-  }, []);
+    refresh(showSkipped);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showSkipped]);
 
   const runDiscovery = async () => {
     setDiscovering(true);
@@ -80,6 +84,22 @@ export default function DashboardPage() {
     }
   };
 
+  const toggleSkip = async (book: Book) => {
+    const action = book.status === "skipped" ? "unskip" : "skip";
+    try {
+      await apiFetch(`/books/${book.id}/${action}`, { method: "POST" });
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  // Cheap client-side grouping for the "scheduled but skipped" summary line.
+  const skippedCount = useMemo(
+    () => books?.filter((b) => b.status === "skipped").length ?? 0,
+    [books],
+  );
+
   return (
     <main className="mx-auto max-w-6xl p-8">
       <header className="mb-8 flex items-start justify-between gap-4">
@@ -90,13 +110,24 @@ export default function DashboardPage() {
             content package.
           </p>
         </div>
-        <button
-          onClick={runDiscovery}
-          disabled={discovering}
-          className="rounded-md bg-white/10 px-4 py-2 text-sm hover:bg-white/20 disabled:opacity-50"
-        >
-          {discovering ? "Running…" : "Run NYT Discovery"}
-        </button>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 text-xs opacity-70 select-none">
+            <input
+              type="checkbox"
+              checked={showSkipped}
+              onChange={(e) => setShowSkipped(e.target.checked)}
+              className="h-4 w-4"
+            />
+            Show skipped
+          </label>
+          <button
+            onClick={runDiscovery}
+            disabled={discovering}
+            className="rounded-md bg-white/10 px-4 py-2 text-sm hover:bg-white/20 disabled:opacity-50"
+          >
+            {discovering ? "Running…" : "Run NYT Discovery"}
+          </button>
+        </div>
       </header>
 
       {error && (
@@ -113,6 +144,11 @@ export default function DashboardPage() {
         <div className="rounded-lg border border-white/10 p-6 text-sm opacity-70">
           Queue is empty. Click <span className="font-medium">Run NYT Discovery</span>{" "}
           to fetch the current bestseller list.
+          {!showSkipped && skippedCount === 0 && (
+            <div className="mt-2 text-xs opacity-60">
+              (Skipped books hidden by default.)
+            </div>
+          )}
         </div>
       ) : (
         <section className="overflow-x-auto rounded-lg border border-white/10">
@@ -131,7 +167,9 @@ export default function DashboardPage() {
               {books.map((b) => (
                 <tr
                   key={b.id}
-                  className="border-b border-white/5 last:border-0 hover:bg-white/5"
+                  className={`border-b border-white/5 last:border-0 hover:bg-white/5 ${
+                    b.status === "skipped" ? "opacity-60" : ""
+                  }`}
                 >
                   <td className="px-4 py-3">
                     <Link
@@ -157,13 +195,26 @@ export default function DashboardPage() {
                       {b.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-right">
-                    <Link
-                      href={`/book/${b.id}`}
-                      className="rounded-md bg-white/10 px-3 py-1 text-xs hover:bg-white/20"
-                    >
-                      Open
-                    </Link>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-end gap-2">
+                      <button
+                        onClick={() => toggleSkip(b)}
+                        className="rounded-md bg-white/10 px-2.5 py-1 text-xs hover:bg-white/20"
+                        title={
+                          b.status === "skipped"
+                            ? "Un-skip — put it back in the queue"
+                            : "Skip — hide from the queue"
+                        }
+                      >
+                        {b.status === "skipped" ? "Unskip" : "Skip"}
+                      </button>
+                      <Link
+                        href={`/book/${b.id}`}
+                        className="rounded-md bg-white/10 px-3 py-1 text-xs hover:bg-white/20"
+                      >
+                        Open
+                      </Link>
+                    </div>
                   </td>
                 </tr>
               ))}

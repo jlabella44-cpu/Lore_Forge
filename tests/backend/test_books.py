@@ -58,3 +58,40 @@ def test_get_book_detail(client):
 def test_book_404s(client):
     assert client.get("/books/99999").status_code == 404
     assert client.patch("/books/99999", json={}).status_code == 404
+    assert client.post("/books/99999/skip").status_code == 404
+    assert client.post("/books/99999/unskip").status_code == 404
+
+
+def test_skip_hides_book_from_default_queue(client):
+    book_id = _seed_one(client)
+    assert len(client.get("/books").json()) == 1
+
+    assert client.post(f"/books/{book_id}/skip").status_code == 200
+
+    # Default list omits skipped books
+    assert client.get("/books").json() == []
+
+    # But include_skipped=true surfaces them
+    listed = client.get("/books?include_skipped=true").json()
+    assert len(listed) == 1
+    assert listed[0]["status"] == "skipped"
+
+
+def test_unskip_restores_visibility(client):
+    book_id = _seed_one(client)
+    client.post(f"/books/{book_id}/skip")
+    assert client.get("/books").json() == []
+
+    client.post(f"/books/{book_id}/unskip")
+    listed = client.get("/books").json()
+    assert len(listed) == 1
+    assert listed[0]["status"] == "discovered"
+
+
+def test_patch_can_set_status_directly(client):
+    """PATCH /books/{id} with {"status": "published"} is a sharp edge for
+    admin/debug; covers the case where someone wants to correct a wedged
+    book without hitting the typed skip/unskip endpoints."""
+    book_id = _seed_one(client)
+    assert client.patch(f"/books/{book_id}", json={"status": "published"}).status_code == 200
+    assert client.get(f"/books/{book_id}").json()["status"] == "published"

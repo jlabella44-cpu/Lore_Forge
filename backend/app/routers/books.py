@@ -8,8 +8,16 @@ router = APIRouter()
 
 
 @router.get("")
-def list_books(db: Session = Depends(get_db)) -> list[dict]:
-    books = db.query(Book).order_by(Book.score.desc(), Book.id.desc()).all()
+def list_books(
+    include_skipped: bool = False,
+    db: Session = Depends(get_db),
+) -> list[dict]:
+    """Default: hides books with status='skipped'. Pass `?include_skipped=true`
+    to list them too (used by the settings / admin surface)."""
+    q = db.query(Book).order_by(Book.score.desc(), Book.id.desc())
+    if not include_skipped:
+        q = q.filter(Book.status != "skipped")
+    books = q.all()
     return [
         {
             "id": b.id,
@@ -82,11 +90,36 @@ def update_book(
     payload: dict,
     db: Session = Depends(get_db),
 ) -> dict:
-    """Phase 1 supports genre_override only."""
+    """Editable fields: genre_override, status."""
     book = db.get(Book, book_id)
     if book is None:
         raise HTTPException(status_code=404, detail="Book not found")
     if "genre_override" in payload:
         book.genre_override = payload["genre_override"] or None
+    if "status" in payload:
+        book.status = payload["status"]
     db.commit()
     return {"ok": True}
+
+
+@router.post("/{book_id}/skip")
+def skip_book(book_id: int, db: Session = Depends(get_db)) -> dict:
+    """Mark a book as skipped — hidden from the default queue. Reversible via
+    PATCH /books/{id} with {"status": "discovered"} or similar."""
+    book = db.get(Book, book_id)
+    if book is None:
+        raise HTTPException(status_code=404, detail="Book not found")
+    book.status = "skipped"
+    db.commit()
+    return {"ok": True, "status": "skipped"}
+
+
+@router.post("/{book_id}/unskip")
+def unskip_book(book_id: int, db: Session = Depends(get_db)) -> dict:
+    """Reverse of /skip — puts the book back in `discovered` state."""
+    book = db.get(Book, book_id)
+    if book is None:
+        raise HTTPException(status_code=404, detail="Book not found")
+    book.status = "discovered"
+    db.commit()
+    return {"ok": True, "status": "discovered"}
