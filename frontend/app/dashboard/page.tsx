@@ -35,10 +35,21 @@ const STATUS_STYLES: Record<string, string> = {
   skipped: "bg-white/5 text-white/50",
 };
 
+const STATUSES = [
+  "discovered",
+  "generating",
+  "review",
+  "scheduled",
+  "published",
+];
+
 export default function DashboardPage() {
   const [books, setBooks] = useState<Book[] | null>(null);
   const [discovering, setDiscovering] = useState(false);
   const [showSkipped, setShowSkipped] = useState(false);
+  const [search, setSearch] = useState("");
+  const [genreFilter, setGenreFilter] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
 
   const refresh = async (includeSkipped = showSkipped) => {
@@ -100,6 +111,24 @@ export default function DashboardPage() {
     [books],
   );
 
+  // Client-side filter: search + genre + status. Runs on the already-fetched
+  // list — no round-trip. Matches title OR author, case-insensitive.
+  const filtered = useMemo(() => {
+    if (!books) return null;
+    const q = search.trim().toLowerCase();
+    return books.filter((b) => {
+      if (q && !b.title.toLowerCase().includes(q) && !b.author.toLowerCase().includes(q)) {
+        return false;
+      }
+      if (genreFilter && (b.genre ?? "") !== genreFilter) return false;
+      if (statusFilter && b.status !== statusFilter) return false;
+      return true;
+    });
+  }, [books, search, genreFilter, statusFilter]);
+
+  const activeFilterCount =
+    (search ? 1 : 0) + (genreFilter ? 1 : 0) + (statusFilter ? 1 : 0);
+
   return (
     <main className="mx-auto max-w-6xl p-8">
       <header className="mb-8 flex items-start justify-between gap-4">
@@ -136,6 +165,56 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {books && books.length > 0 && (
+        <div className="mb-4 flex flex-wrap items-center gap-2">
+          <input
+            type="search"
+            placeholder="Search title or author…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="flex-1 min-w-[200px] rounded-md border border-white/10 bg-transparent px-3 py-1.5 text-sm placeholder:opacity-50"
+          />
+          <select
+            value={genreFilter}
+            onChange={(e) => setGenreFilter(e.target.value)}
+            className="rounded-md border border-white/10 bg-transparent px-2 py-1.5 text-sm"
+          >
+            <option value="">All genres</option>
+            {GENRES.map((g) => (
+              <option key={g} value={g}>{g}</option>
+            ))}
+          </select>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="rounded-md border border-white/10 bg-transparent px-2 py-1.5 text-sm"
+          >
+            <option value="">All statuses</option>
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>{s}</option>
+            ))}
+            {showSkipped && <option value="skipped">skipped</option>}
+          </select>
+          {activeFilterCount > 0 && (
+            <button
+              onClick={() => {
+                setSearch("");
+                setGenreFilter("");
+                setStatusFilter("");
+              }}
+              className="rounded-md bg-white/10 px-3 py-1.5 text-xs hover:bg-white/20"
+            >
+              Clear ({activeFilterCount})
+            </button>
+          )}
+          {filtered && (
+            <span className="text-xs opacity-60">
+              {filtered.length}/{books.length} books
+            </span>
+          )}
+        </div>
+      )}
+
       {books === null ? (
         <div className="rounded-lg border border-white/10 p-6 text-sm opacity-70">
           Loading…
@@ -149,6 +228,10 @@ export default function DashboardPage() {
               (Skipped books hidden by default.)
             </div>
           )}
+        </div>
+      ) : filtered && filtered.length === 0 ? (
+        <div className="rounded-lg border border-white/10 p-6 text-sm opacity-70">
+          No books match your filters. Clear or loosen them to see more.
         </div>
       ) : (
         <section className="overflow-x-auto rounded-lg border border-white/10">
@@ -164,7 +247,7 @@ export default function DashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {books.map((b) => (
+              {(filtered ?? []).map((b) => (
                 <tr
                   key={b.id}
                   className={`border-b border-white/5 last:border-0 hover:bg-white/5 ${
