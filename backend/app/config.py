@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     # Set to 0 or a negative value to disable.
     cost_daily_budget_cents: int = 500  # $5.00 default
 
+    # ---- Render retention ----
+    # Rendered videos for books that never got published pile up on disk.
+    # `POST /packages/prune-renders` deletes `{renders_dir}/{pkg_id}/` for
+    # unpublished packages whose last render is older than this many days.
+    # Set to 0 or negative to disable (the endpoint will 400).
+    render_retention_days: int = 30
+
     # ---- LLM keys ----
     anthropic_api_key: str = ""
     claude_model: str = "claude-opus-4-6"

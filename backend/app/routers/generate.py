@@ -16,7 +16,7 @@ from app.context import package_context
 from app.db import get_db
 from app.models import Book, ContentPackage
 from app.observability import log_call
-from app.services import amazon, cost, jobs, llm, renderer
+from app.services import amazon, cost, jobs, llm, renderer, render_retention
 
 router = APIRouter()
 
@@ -115,6 +115,55 @@ def generate_package(
 
 
 # ---------------------------------------------------------------------------
+# POST /packages/render-all
+# ---------------------------------------------------------------------------
+
+@router.post("/packages/render-all")
+def render_all(
+    response: Response = None,  # type: ignore[assignment]
+    db: Session = Depends(get_db),
+) -> dict:
+    """Enqueue an async render for every book in `scheduled` (approved but
+    not yet rendered). Returns 202 + job_ids.
+
+    Parallel to `/books/generate-all`: hits the daily-budget guardrail once
+    up front, picks candidates in score order, enqueues each via the
+    existing render worker. Books in `rendered` or `published` are skipped
+    — re-rendering happens one package at a time via the per-package
+    endpoint (narration edits flip `needs_rerender` on the package, not
+    the book status).
+    """
+    try:
+        cost.assert_under_budget()
+    except cost.BudgetExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+
+    # Eligible: book.status=scheduled + has an approved package.
+    eligible_pkgs = (
+        db.query(ContentPackage)
+        .join(Book, Book.id == ContentPackage.book_id)
+        .filter(Book.status == "scheduled", ContentPackage.is_approved.is_(True))
+        .order_by(Book.score.desc(), ContentPackage.id.asc())
+        .all()
+    )
+
+    job_ids: list[int] = []
+    for pkg in eligible_pkgs:
+        job_id = jobs.enqueue(
+            "render", pkg.id, _render_worker, package_id=pkg.id
+        )
+        job_ids.append(job_id)
+
+    if response is not None:
+        response.status_code = 202
+    return {
+        "enqueued": len(job_ids),
+        "eligible_count": len(eligible_pkgs),
+        "job_ids": job_ids,
+    }
+
+
+# ---------------------------------------------------------------------------
 # POST /packages/{id}/render[?async=true]
 # ---------------------------------------------------------------------------
 
@@ -160,6 +209,30 @@ def render_package(
     except RuntimeError as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
     return {"package_id": package_id, **result}
+
+
+# ---------------------------------------------------------------------------
+# POST /packages/prune-renders
+# ---------------------------------------------------------------------------
+
+@router.post("/packages/prune-renders")
+def prune_renders(
+    max_age_days: int | None = Query(None, ge=1),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Delete on-disk renders + clear render-metadata for never-published
+    packages older than `max_age_days`. Defaults to `settings.render_retention_days`
+    (30); set to 0 or negative in config to disable the endpoint entirely."""
+    days = max_age_days if max_age_days is not None else settings.render_retention_days
+    if days <= 0:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Render retention is disabled "
+                "(RENDER_RETENTION_DAYS <= 0); pass ?max_age_days=N to override."
+            ),
+        )
+    return render_retention.prune_stale_renders(db, max_age_days=days)
 
 
 # ---------------------------------------------------------------------------
