@@ -1,4 +1,11 @@
+from pathlib import Path
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.db_url import resolve_sqlite_url
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
@@ -10,6 +17,14 @@ class Settings(BaseSettings):
 
     # ---- Storage ----
     database_url: str = "sqlite:///./lore_forge.sqlite"
+
+    @field_validator("database_url")
+    @classmethod
+    def _anchor_sqlite_at_repo_root(cls, v: str) -> str:
+        # Normalize relative sqlite paths to repo-root absolute, so the
+        # backend (cwd=backend/) and alembic (cwd=db/) can't drift onto
+        # two different files. Non-sqlite URLs pass through unchanged.
+        return resolve_sqlite_url(v, REPO_ROOT)
 
     # ---- Renderer paths (all resolved relative to the backend/ cwd) ----
     renders_dir: str = "./renders"

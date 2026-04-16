@@ -5,14 +5,14 @@ they land; don't let this turn into a design doc.
 
 ## Schema
 
-- **Two-DB divergence (being fixed).** `backend/lore_forge.sqlite` (real data)
-  and `db/lore_forge.sqlite` (alembic-only scaffold) were never the same file
-  because `DATABASE_URL=sqlite:///./lore_forge.sqlite` is relative to the cwd
-  of whoever ran it. Short-term fix on branch
-  `claude/stamp-upgrade-real-db-YyS4F`: `cd backend && alembic stamp
-  0004_cost_records && alembic upgrade head` (runs locally, not in CI).
-  **Root-cause fix (TODO):** resolve `DATABASE_URL` to an absolute path — either
-  in `.env.example` or by normalizing in `app/config.py` + `db/env.py`.
+- **Two-DB divergence (fixed).** `backend/lore_forge.sqlite` (real data) and
+  `db/lore_forge.sqlite` (alembic-only scaffold) were never the same file
+  because `DATABASE_URL=sqlite:///./lore_forge.sqlite` was relative to the
+  cwd of whoever ran it. Short-term fix (runs locally, not in CI): `cd
+  backend && alembic stamp 0004_cost_records && alembic upgrade head`.
+  Root-cause fix landed in `app/db_url.py` — relative sqlite URLs are now
+  anchored to the repo root from both `app/config.py` (pydantic validator)
+  and `db/env.py`, so backend and alembic cannot drift onto two files again.
 
 - **Model ↔ migration `server_default` drift.** `test_schema_drift.py` caught
   this while being tuned: several columns declare `server_default=...` in the
