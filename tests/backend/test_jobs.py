@@ -276,3 +276,91 @@ def test_render_async_captures_remotion_failure(client, approved_package, inline
 
 def test_get_job_404_on_missing(client):
     assert client.get("/jobs/99999").status_code == 404
+
+
+# --- batch generate -------------------------------------------------------
+
+
+def test_generate_all_enqueues_only_discovered_books_without_packages(
+    client, inline_jobs
+):
+    """Discovery seeds 3 books; one already has a package (from the seeded
+    fantasy sample in app.seed, not used here — we build it inline).
+    Batch endpoint should enqueue one job per eligible book."""
+    from unittest.mock import patch
+
+    nyt_hits = [
+        {"title": "Book A", "author": "A A", "isbn": "9780000000001",
+         "description": None, "cover_url": None, "source_rank": 1},
+        {"title": "Book B", "author": "B B", "isbn": "9780000000002",
+         "description": None, "cover_url": None, "source_rank": 2},
+        {"title": "Book C", "author": "C C", "isbn": "9780000000003",
+         "description": None, "cover_url": None, "source_rank": 3},
+    ]
+    with (
+        patch("app.sources.nyt.fetch_bestsellers", return_value=nyt_hits),
+        patch("app.services.llm.classify_genre", return_value=("fantasy", 0.9)),
+    ):
+        client.post("/discover/run")
+
+    # Generate a package for book A so it's no longer eligible.
+    books = client.get("/books").json()
+    book_a = next(b for b in books if b["title"] == "Book A")
+    with (
+        patch("app.services.llm.generate_hooks", return_value=FAKE_HOOKS),
+        patch("app.services.llm.generate_script", return_value=FAKE_SCRIPT),
+        patch("app.services.llm.generate_scene_prompts", return_value=FAKE_SCENES),
+        patch("app.services.llm.generate_platform_meta", return_value=FAKE_META),
+    ):
+        client.post(f"/books/{book_a['id']}/generate", json={})
+
+    # Now batch — should pick up B and C but not A.
+    with (
+        patch("app.services.llm.generate_hooks", return_value=FAKE_HOOKS),
+        patch("app.services.llm.generate_script", return_value=FAKE_SCRIPT),
+        patch("app.services.llm.generate_scene_prompts", return_value=FAKE_SCENES),
+        patch("app.services.llm.generate_platform_meta", return_value=FAKE_META),
+    ):
+        res = client.post("/books/generate-all")
+
+    assert res.status_code == 202
+    body = res.json()
+    assert body["enqueued"] == 2
+    assert body["eligible_count"] == 2
+    assert len(body["job_ids"]) == 2
+
+    # Each job should complete since inline_jobs runs them synchronously
+    for job_id in body["job_ids"]:
+        assert client.get(f"/jobs/{job_id}").json()["status"] == "succeeded"
+
+
+def test_generate_all_respects_budget_guardrail(client, monkeypatch):
+    from app.config import settings
+    from app.services import cost
+    from unittest.mock import patch
+
+    monkeypatch.setattr(settings, "cost_daily_budget_cents", 10)
+    cost.record_image(provider="wanx", model="wanx2.1-t2i-turbo", count=10)  # 20¢
+
+    # Seed a book so the endpoint has something that could be eligible.
+    with (
+        patch(
+            "app.sources.nyt.fetch_bestsellers",
+            return_value=[{"title": "x", "author": "y", "isbn": "9780000000099",
+                          "description": None, "cover_url": None, "source_rank": 1}],
+        ),
+        patch("app.services.llm.classify_genre", return_value=("fantasy", 0.9)),
+    ):
+        client.post("/discover/run")
+
+    res = client.post("/books/generate-all")
+    assert res.status_code == 429
+    assert "budget" in res.json()["detail"].lower()
+
+
+def test_generate_all_with_empty_queue_returns_zero(client):
+    """Empty eligible list returns 202 + enqueued=0 (not an error)."""
+    res = client.post("/books/generate-all")
+    assert res.status_code == 202
+    assert res.json()["enqueued"] == 0
+    assert res.json()["job_ids"] == []

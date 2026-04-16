@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 
-import { apiFetch } from "@/lib/api";
+import { apiFetch, type Job, pollJob } from "@/lib/api";
 
 type Book = {
   id: number;
@@ -51,6 +51,11 @@ export default function DashboardPage() {
   const [genreFilter, setGenreFilter] = useState<string>("");
   const [statusFilter, setStatusFilter] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+  const [batch, setBatch] = useState<{
+    total: number;
+    done: number;
+    failed: number;
+  } | null>(null);
 
   const refresh = async (includeSkipped = showSkipped) => {
     setError(null);
@@ -89,6 +94,48 @@ export default function DashboardPage() {
         method: "PATCH",
         body: JSON.stringify({ genre_override: genre || null }),
       });
+      await refresh();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  const runBatchGenerate = async () => {
+    setError(null);
+    setBatch(null);
+    try {
+      const res = await apiFetch<{
+        enqueued: number;
+        eligible_count: number;
+        job_ids: number[];
+      }>("/books/generate-all", { method: "POST" });
+
+      if (res.enqueued === 0) {
+        setError("No eligible books — every discovered book already has a package.");
+        return;
+      }
+
+      setBatch({ total: res.enqueued, done: 0, failed: 0 });
+
+      // Poll each job in parallel; update counters as each finishes.
+      await Promise.all(
+        res.job_ids.map(async (jobId) => {
+          try {
+            const final = await pollJob(jobId, () => {});
+            setBatch((prev) => {
+              if (!prev) return prev;
+              const next = { ...prev, done: prev.done + 1 };
+              if (final.status === "failed") next.failed += 1;
+              return next;
+            });
+          } catch {
+            setBatch((prev) =>
+              prev ? { ...prev, done: prev.done + 1, failed: prev.failed + 1 } : prev,
+            );
+          }
+        }),
+      );
+
       await refresh();
     } catch (e) {
       setError(String(e));
@@ -150,6 +197,16 @@ export default function DashboardPage() {
             Show skipped
           </label>
           <button
+            onClick={runBatchGenerate}
+            disabled={batch !== null && batch.done < batch.total}
+            className="rounded-md bg-white/10 px-4 py-2 text-sm hover:bg-white/20 disabled:opacity-50"
+            title="Generate packages for every discovered book without one. Uses real API credits — check /settings for your budget."
+          >
+            {batch && batch.done < batch.total
+              ? `Generating ${batch.done}/${batch.total}…`
+              : "Generate All"}
+          </button>
+          <button
             onClick={runDiscovery}
             disabled={discovering}
             className="rounded-md bg-white/10 px-4 py-2 text-sm hover:bg-white/20 disabled:opacity-50"
@@ -158,6 +215,37 @@ export default function DashboardPage() {
           </button>
         </div>
       </header>
+
+      {batch && (
+        <div
+          className={`mb-6 rounded-md border p-3 text-sm ${
+            batch.done < batch.total
+              ? "border-amber-500/30 bg-amber-500/5 text-amber-100"
+              : batch.failed > 0
+                ? "border-red-500/30 bg-red-500/5 text-red-200"
+                : "border-green-500/30 bg-green-500/5 text-green-200"
+          }`}
+        >
+          <div className="mb-1 flex items-center justify-between">
+            <span>
+              {batch.done < batch.total
+                ? `Batch generate in progress`
+                : batch.failed > 0
+                  ? `Batch complete with ${batch.failed} failure${batch.failed === 1 ? "" : "s"}`
+                  : `Batch complete — all ${batch.total} packages generated`}
+            </span>
+            <span className="tabular-nums opacity-80">
+              {batch.done}/{batch.total}
+            </span>
+          </div>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10">
+            <div
+              className="h-full bg-current transition-all"
+              style={{ width: `${(batch.done / batch.total) * 100}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="mb-6 rounded-md border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">

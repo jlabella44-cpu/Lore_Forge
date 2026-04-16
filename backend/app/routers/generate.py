@@ -25,6 +25,56 @@ router = APIRouter()
 # POST /books/{id}/generate[?async=true]
 # ---------------------------------------------------------------------------
 
+@router.post("/books/generate-all")
+def generate_all(
+    response: Response = None,  # type: ignore[assignment]
+    db: Session = Depends(get_db),
+) -> dict:
+    """Enqueue an async generate job for every book that's `discovered` and
+    has no ContentPackage yet. Always returns 202 + the list of job ids;
+    the frontend polls each to show aggregate progress.
+
+    Hits the daily-budget guardrail once up front; if we're already at the
+    cap, no jobs enqueue and the response is 429.
+    """
+    try:
+        cost.assert_under_budget()
+    except cost.BudgetExceeded as exc:
+        raise HTTPException(status_code=429, detail=str(exc)) from exc
+
+    # Eligible: status=discovered AND no existing package on this book.
+    packaged_ids = {
+        row[0]
+        for row in db.query(ContentPackage.book_id).distinct().all()
+    }
+    eligible = (
+        db.query(Book)
+        .filter(Book.status == "discovered")
+        .order_by(Book.score.desc(), Book.id.asc())
+        .all()
+    )
+    eligible = [b for b in eligible if b.id not in packaged_ids]
+
+    job_ids: list[int] = []
+    for book in eligible:
+        job_id = jobs.enqueue(
+            "generate",
+            book.id,
+            _generate_worker,
+            book_id=book.id,
+            note=None,
+        )
+        job_ids.append(job_id)
+
+    if response is not None:
+        response.status_code = 202
+    return {
+        "enqueued": len(job_ids),
+        "eligible_count": len(eligible),
+        "job_ids": job_ids,
+    }
+
+
 @router.post("/books/{book_id}/generate")
 def generate_package(
     book_id: int,
