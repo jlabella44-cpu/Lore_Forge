@@ -17,6 +17,7 @@ Pipeline per render:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import random
 import subprocess
@@ -24,9 +25,20 @@ from pathlib import Path
 
 from sqlalchemy.orm import object_session
 
+from app.clock import utc_now
 from app.config import settings
 from app.observability import log_call
 from app.services import images, tts, whisper
+
+
+def narration_hash(text: str) -> str:
+    """SHA-256 hex of the narration text, used for stale-render detection.
+
+    Stored on ContentPackage.rendered_narration_hash at render time; compared
+    against the current narration's hash to decide whether the on-disk mp4 is
+    still in sync with the edit state.
+    """
+    return hashlib.sha256((text or "").encode("utf-8")).hexdigest()
 
 # Book genre → video tone.
 GENRE_TONE: dict[str, str] = {
@@ -164,6 +176,18 @@ def _render_inner(package, book, scenes_in, tone, work_dir, ctx) -> dict:
 
     size_bytes = out_mp4.stat().st_size
     ctx["size_mb"] = round(size_bytes / 1_048_576, 2)
+
+    # 8. Snapshot the render on the package so the UI can show stats + detect
+    # staleness without touching the filesystem. Hash is over the narration
+    # that was actually spoken (which == package.narration at this point).
+    package.rendered_at = utc_now()
+    package.rendered_duration_seconds = total_seconds
+    package.rendered_size_bytes = size_bytes
+    package.rendered_narration_hash = narration_hash(package.narration)
+    session = object_session(package)
+    if session is not None:
+        session.commit()
+
     return {
         "file_path": str(out_mp4),
         "duration_seconds": total_seconds,

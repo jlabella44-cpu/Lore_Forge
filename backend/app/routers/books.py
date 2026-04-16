@@ -3,8 +3,21 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.models import Book, ContentPackage
+from app.services.renderer import narration_hash
 
 router = APIRouter()
+
+
+def _needs_rerender(package: ContentPackage) -> bool:
+    """True when either (a) the package has never rendered, or (b) the
+    narration has been edited since the last render so the on-disk mp4 is
+    stale. A package with no narration at all can't render yet — we treat
+    that as "needs render" too."""
+    if package.rendered_at is None:
+        return True
+    if not package.narration:
+        return True
+    return narration_hash(package.narration) != (package.rendered_narration_hash or "")
 
 
 @router.get("")
@@ -78,6 +91,10 @@ def get_book(book_id: int, db: Session = Depends(get_db)) -> dict:
                 "regenerate_note": p.regenerate_note,
                 "is_approved": p.is_approved,
                 "created_at": p.created_at.isoformat() if p.created_at else None,
+                "rendered_at": p.rendered_at.isoformat() if p.rendered_at else None,
+                "rendered_duration_seconds": p.rendered_duration_seconds,
+                "rendered_size_bytes": p.rendered_size_bytes,
+                "needs_rerender": _needs_rerender(p),
             }
             for p in packages
         ],
