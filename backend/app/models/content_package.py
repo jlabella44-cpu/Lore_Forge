@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, false
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
 
@@ -31,7 +31,9 @@ class ContentPackage(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     book_id: Mapped[int] = mapped_column(ForeignKey("books.id"), index=True)
-    revision_number: Mapped[int] = mapped_column(Integer, default=1)
+    revision_number: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1"
+    )
 
     # Script + narration.
     script: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -62,7 +64,9 @@ class ContentPackage(Base):
 
     # Regenerate note that produced this revision (null on first)
     regenerate_note: Mapped[str | None] = mapped_column(Text, nullable=True)
-    is_approved: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_approved: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false()
+    )
 
     # Render snapshot — all null until the first successful render.
     rendered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

@@ -14,19 +14,13 @@ they land; don't let this turn into a design doc.
   anchored to the repo root from both `app/config.py` (pydantic validator)
   and `db/env.py`, so backend and alembic cannot drift onto two files again.
 
-- **Model ↔ migration `server_default` drift.** `test_schema_drift.py` caught
-  this while being tuned: several columns declare `server_default=...` in the
-  Alembic migrations (`0001_initial`, etc.) but the ORM models don't. Columns
-  affected: `analytics.views / watch_time_seconds / affiliate_clicks /
-  revenue_cents`, `book_sources.score`, `books.status / score`,
-  `content_packages.revision_number / is_approved`, `cost_records.estimated_cents`,
-  `jobs.status`. Harmless today (SQLite honors the DB-side default), but would
-  bite on a metadata-driven `create_all` (fresh test DB, etc.) since rows
-  written by SQLAlchemy wouldn't carry the default. Fix: add
-  `server_default=...` to the matching `Column(...)` in
-  `backend/app/models/*.py` so the two sources of truth agree. The guardrail
-  test has `compare_server_default` off for now; flip it on once the model
-  side is in sync.
+- **Model ↔ migration `server_default` drift (fixed).** Originally caught by
+  `test_schema_drift.py` during tuning: 11 columns declared `server_default`
+  in migrations but not on the ORM models (`analytics.*`, `books.status/score`,
+  `book_sources.score`, `content_packages.revision_number/is_approved`,
+  `cost_records.estimated_cents`, `jobs.status`). The model side now declares
+  `server_default=...` to match, and the guardrail test runs with
+  `compare_server_default=True` so any future drift fails CI.
 
 - **0005 migration (series / series_books / format column).** Exists locally
   but not in this repo — originally applied to the empty `db/` SQLite by

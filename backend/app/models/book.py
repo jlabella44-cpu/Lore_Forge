@@ -24,7 +24,9 @@ class Book(Base):
     genre_override: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     # Lifecycle: discovered → generating → review → scheduled → published
-    status: Mapped[str] = mapped_column(String(32), default="discovered")
-    score: Mapped[float] = mapped_column(Float, default=0.0)
+    status: Mapped[str] = mapped_column(
+        String(32), default="discovered", server_default="discovered"
+    )
+    score: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
 
     discovered_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

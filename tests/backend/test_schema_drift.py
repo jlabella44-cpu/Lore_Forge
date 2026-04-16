@@ -33,16 +33,12 @@ def test_alembic_head_matches_base_metadata(tmp_path, monkeypatch):
     from app import models  # noqa: F401  (register mappers on Base.metadata)
     from app.db import Base
 
-    # compare_server_default is intentionally off — alembic's server-default
-    # diffing is noisy for SQLite (text vs. rendered-SQL clauses) and these
-    # mismatches are orthogonal to the schema-divergence class this test
-    # guards against. We care about tables, columns, types, nullability.
     engine = create_engine(url)
     try:
         with engine.connect() as conn:
             ctx = MigrationContext.configure(
                 conn,
-                opts={"compare_type": True},
+                opts={"compare_type": True, "compare_server_default": True},
             )
             diffs = compare_metadata(ctx, Base.metadata)
     finally:
