@@ -43,11 +43,8 @@ playwright-report/
 blob-report/
 playwright/.cache/
 
-# Pytest leakage: main.py mkdirs settings.renders_dir on app boot, and
-# TestClient triggers that from tests/ as cwd even when individual tests
-# monkeypatch renders_dir. Safe to commit a stray tests/renders/ sentinel
-# would not be — just ignore it.
-tests/renders/
+# Rendered videos — write target, not source of truth.
+/renders/
 
 # Temp
 tmp/

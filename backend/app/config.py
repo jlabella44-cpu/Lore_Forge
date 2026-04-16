@@ -4,6 +4,7 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.db_url import resolve_sqlite_url
+from app.paths import resolve_repo_root_path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -26,10 +27,18 @@ class Settings(BaseSettings):
         # two different files. Non-sqlite URLs pass through unchanged.
         return resolve_sqlite_url(v, REPO_ROOT)
 
-    # ---- Renderer paths (all resolved relative to the backend/ cwd) ----
+    # ---- Renderer paths ----
+    # Normalized against the repo root by `_anchor_path_at_repo_root` below,
+    # so uvicorn from backend/ and tests from tests/ see the same absolute
+    # locations. Same bug class as the DATABASE_URL anchoring above.
     renders_dir: str = "./renders"
-    music_dir: str = "./assets/music"
-    remotion_dir: str = "../remotion"
+    music_dir: str = "./backend/assets/music"
+    remotion_dir: str = "./remotion"
+
+    @field_validator("renders_dir", "music_dir", "remotion_dir")
+    @classmethod
+    def _anchor_path_at_repo_root(cls, v: str) -> str:
+        return resolve_repo_root_path(v, REPO_ROOT)
 
     # ---- APScheduler ----
     # Weekly discovery cron is opt-in so `uvicorn --reload` doesn't fire

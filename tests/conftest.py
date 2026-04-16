@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,13 @@ if str(BACKEND_DIR) not in sys.path:
 
 # Force ephemeral sqlite for tests before anything in app loads.
 os.environ["DATABASE_URL"] = "sqlite:///:memory:"
+
+# Redirect renders_dir + music_dir into a tmpdir before `main.py` is imported —
+# otherwise FastAPI's `app.mount(..., StaticFiles(directory=renders_dir))` at
+# import time creates the *real* repo-root renders/ folder every test run.
+_TEST_RUN_TMP = Path(tempfile.mkdtemp(prefix="lore-forge-test-"))
+os.environ.setdefault("RENDERS_DIR", str(_TEST_RUN_TMP / "renders"))
+os.environ.setdefault("MUSIC_DIR", str(_TEST_RUN_TMP / "music"))
 
 
 @pytest.fixture
