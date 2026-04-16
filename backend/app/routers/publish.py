@@ -6,12 +6,12 @@ verbatim so the user can see exactly why (common in OAuth / app-review land).
 """
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.clock import utc_now
 from app.db import get_db
 from app.models import Book, ContentPackage, Video
 from app.services import meta as meta_svc
@@ -88,7 +88,7 @@ def publish_package(
         platform=platform,
         file_path=str(mp4_path),
         external_id=external_id,
-        published_at=datetime.utcnow(),
+        published_at=utc_now(),
     )
     db.add(video)
 

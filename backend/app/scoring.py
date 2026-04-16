@@ -20,6 +20,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Iterable
 
+from app.clock import utc_now
+
 SOURCE_WEIGHTS: dict[str, float] = {
     "booktok": 3.0,
     "amazon_movers": 2.5,
@@ -59,7 +61,7 @@ def recency_multiplier_from(
     discovered_at: datetime,
     now: datetime | None = None,
 ) -> float:
-    now = now or datetime.utcnow()
+    now = now or utc_now()
     return recency_multiplier(now - discovered_at)
 
 

@@ -22,9 +22,9 @@ from __future__ import annotations
 import argparse
 import shutil
 import subprocess
-from datetime import datetime
 from pathlib import Path
 
+from app.clock import utc_now
 from app.config import settings
 from app.db import SessionLocal, engine
 from app.models import Book, BookSource, ContentPackage
@@ -250,7 +250,7 @@ def run(wipe: bool = False, with_video: bool = True) -> dict:
                     pkg = ContentPackage(
                         book_id=book.id,
                         revision_number=1,
-                        created_at=datetime.utcnow(),
+                        created_at=utc_now(),
                         **SAMPLE_PACKAGE,
                     )
                     db.add(pkg)

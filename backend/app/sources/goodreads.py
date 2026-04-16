@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from app.clock import utc_now
 from app.services import firecrawl
 
 _SCHEMA = {
@@ -49,7 +50,7 @@ _PROMPT = (
 def fetch_trending(now: datetime | None = None, limit: int = 25) -> list[dict]:
     """Return up to `limit` normalized book rows from the current month's
     Goodreads popularity list."""
-    now = now or datetime.utcnow()
+    now = now or utc_now()
     url = f"https://www.goodreads.com/book/popular_by_date/{now.year}/{now.month}"
 
     payload = firecrawl.extract_structured(url, schema=_SCHEMA, prompt=_PROMPT)

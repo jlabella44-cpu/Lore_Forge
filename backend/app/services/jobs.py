@@ -27,10 +27,10 @@ from __future__ import annotations
 
 import threading
 from contextlib import contextmanager
-from datetime import datetime
 from typing import Any, Callable, Iterator
 
 from app import db as _db_module  # use module attr so tests can swap SessionLocal
+from app.clock import utc_now
 from app.models import Job
 from app.observability import get_logger
 
@@ -72,7 +72,7 @@ def enqueue(kind: str, target_id: int, worker: Callable[..., Any], *args, **kwar
             kind=kind,
             target_id=target_id,
             status="queued",
-            created_at=datetime.utcnow(),
+            created_at=utc_now(),
         )
         db.add(job)
         db.commit()
@@ -114,7 +114,7 @@ def job_session(job_id: int) -> Iterator[tuple[Any, Callable[[str], None]]]:
         raise RuntimeError(f"Job {job_id} vanished before run")
 
     job.status = "running"
-    job.started_at = datetime.utcnow()
+    job.started_at = utc_now()
     job.message = "running"
     db.commit()
 
@@ -128,7 +128,7 @@ def job_session(job_id: int) -> Iterator[tuple[Any, Callable[[str], None]]]:
         if job is not None:
             job.status = "failed"
             job.error = str(exc) or repr(exc)
-            job.finished_at = datetime.utcnow()
+            job.finished_at = utc_now()
             db.commit()
         db.close()
         raise
@@ -138,7 +138,7 @@ def job_session(job_id: int) -> Iterator[tuple[Any, Callable[[str], None]]]:
             job.status = "succeeded"
             job.result = result_holder.get("value")
             job.message = "done"
-            job.finished_at = datetime.utcnow()
+            job.finished_at = utc_now()
             db.commit()
         db.close()
 
@@ -176,7 +176,7 @@ def _mark_failed(job_id: int, error: str) -> None:
             return
         job.status = "failed"
         job.error = error
-        job.finished_at = datetime.utcnow()
+        job.finished_at = utc_now()
         db.commit()
     finally:
         db.close()

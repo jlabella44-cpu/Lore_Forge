@@ -15,12 +15,12 @@ the Claude/Qwen call.
 """
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Callable
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.clock import utc_now
 from app.config import settings
 from app.db import get_db
 from app.models import Book, BookSource
@@ -184,7 +184,7 @@ def _safe_classify(
 def _recompute_scores(db: Session) -> None:
     """For every book that has at least one BookSource, sum the weighted
     recency-decayed source hits → Book.score."""
-    now = datetime.utcnow()
+    now = utc_now()
     books = db.query(Book).all()
     for book in books:
         rows = (

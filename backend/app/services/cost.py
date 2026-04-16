@@ -20,11 +20,12 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from contextvars import ContextVar
-from datetime import datetime, timedelta
+from datetime import timedelta
 from typing import Any, Iterator
 
 from app import context as app_context
 from app import db as _db_module
+from app.clock import utc_now
 from app.models import Book, ContentPackage, CostRecord
 from app.observability import get_logger
 
@@ -184,7 +185,7 @@ def spend_last_24h_cents() -> float:
     Separate from `summary_last_n_days(1)` so it can be called on every
     enqueue without paying for the full grouping pass.
     """
-    since = datetime.utcnow() - timedelta(hours=24)
+    since = utc_now() - timedelta(hours=24)
     db = _db_module.SessionLocal()
     try:
         rows = (
@@ -241,7 +242,7 @@ def per_package_cents(package_id: int) -> float:
 
 
 def summary_last_n_days(days: int = 30) -> dict:
-    since = datetime.utcnow() - timedelta(days=days)
+    since = utc_now() - timedelta(days=days)
     db = _db_module.SessionLocal()
     try:
         rows = (

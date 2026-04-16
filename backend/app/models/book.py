@@ -3,6 +3,7 @@ from datetime import datetime
 from sqlalchemy import DateTime, Float, String
 from sqlalchemy.orm import Mapped, mapped_column
 
+from app.clock import utc_now
 from app.db import Base
 
 
@@ -26,4 +27,4 @@ class Book(Base):
     status: Mapped[str] = mapped_column(String(32), default="discovered")
     score: Mapped[float] = mapped_column(Float, default=0.0)
 
-    discovered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    discovered_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
