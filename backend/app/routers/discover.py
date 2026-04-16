@@ -82,6 +82,12 @@ def run_discovery(db: Session = Depends(get_db)) -> dict:
                 new_source_rows += 1
             else:
                 skipped += 1
+            # Commit per hit so SQLite releases the write lock between
+            # iterations. The cost-recorder's separate session needs the
+            # lock to INSERT its CostRecord rows during classify_genre on
+            # the NEXT hit; without this, SQLite's single-writer constraint
+            # deadlocks the recorder against our own outer txn.
+            db.commit()
 
     if new_source_rows:
         # SessionLocal is autoflush=False, so the BookSource rows we just
