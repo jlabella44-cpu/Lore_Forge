@@ -290,7 +290,12 @@ def _generate_core_with_progress(
             is_approved=False,
         )
         db.add(package)
-        db.flush()
+        # Commit (not just flush) so SQLite releases the write lock before
+        # attach_pending_to fires. Otherwise the outer session holds an
+        # open write-txn while attach_pending_to opens a NEW session to
+        # UPDATE cost_records, and SQLite's single-writer constraint
+        # blocks it for busy_timeout and then errors.
+        db.commit()
         db.refresh(package)
         return {
             "package_id": package.id,
