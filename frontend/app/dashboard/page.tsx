@@ -182,8 +182,8 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-3xl font-semibold">Book Queue</h1>
           <p className="text-sm opacity-70">
-            Discovered books ranked by score. Click a title to review its
-            content package.
+            Books ranked by score across your enabled sources. Click a title
+            to review its content package.
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -210,8 +210,9 @@ export default function DashboardPage() {
             onClick={runDiscovery}
             disabled={discovering}
             className="rounded-md bg-white/10 px-4 py-2 text-sm hover:bg-white/20 disabled:opacity-50"
+            title="Fan out across every source in SOURCES_ENABLED — see .env"
           >
-            {discovering ? "Running…" : "Run NYT Discovery"}
+            {discovering ? "Running…" : "Run Discovery"}
           </button>
         </div>
       </header>
