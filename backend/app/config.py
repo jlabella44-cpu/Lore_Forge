@@ -80,6 +80,7 @@ class Settings(BaseSettings):
     script_provider: str = "claude"          # claude | openai | qwen
     meta_provider: str = "qwen"              # claude | openai | qwen
     tts_provider: str = "openai"             # openai | kokoro | dashscope | elevenlabs
+    tts_model: str = "tts-1-hd"             # tts-1 (fast/flat) | tts-1-hd (expressive)
     image_provider: str = "wanx"             # wanx | dalle | imagen | replicate | sdxl_local | midjourney_manual
 
     # ---- Voice (optional upgrades) ----

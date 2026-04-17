@@ -144,32 +144,55 @@ def _render_inner(package, book, scenes_in, tone, work_dir, ctx, composition, on
         if session is not None:
             session.commit()
 
-    # 3. Image gen — one per scene, serial
-    scene_paths: list[Path] = []
+    # 3. Image gen — N per section (prompts: list[str]), serial.
+    # scene_paths[i] is a list of image Paths for scenes_in[i], matching
+    # scenes_in[i]["prompts"] 1:1.
+    total_images = sum(len(s.get("prompts") or [""]) for s in scenes_in)
+    scene_paths: list[list[Path]] = []
+    img_idx = 0
     for i, scene in enumerate(scenes_in, start=1):
         label = scene.get("section") or scene.get("label") or f"scene_{i}"
-        on_progress(f"Step 3/4: generating image {i}/{total_scenes} ({label})")
-        out = work_dir / f"scene_{i:02d}_{label}.png"
-        images.generate(scene["prompt"], out, aspect="9:16")
-        scene_paths.append(out)
+        prompts = scene.get("prompts") or [""]
+        paths_for_scene: list[Path] = []
+        for j, prompt in enumerate(prompts, start=1):
+            img_idx += 1
+            on_progress(
+                f"Step 3/4: generating image {img_idx}/{total_images} ({label} {j}/{len(prompts)})"
+            )
+            out = work_dir / f"scene_{i:02d}_{j:02d}_{label}.png"
+            images.generate(prompt, out, aspect="9:16")
+            paths_for_scene.append(out)
+        scene_paths.append(paths_for_scene)
 
-    # 4. Duration math — split narration across scenes by word count
+    # 4. Duration math — split narration across sections by word count,
+    # then split each section's slice evenly across its N prompts.
     narration_seconds = probe_duration(narration_path)
     card_seconds = 2.0
     total_seconds = narration_seconds + card_seconds * 2
 
     fmt = getattr(package, "format", "short_hook") or "short_hook"
     if fmt == "list":
-        per_scene_durations = _list_scene_durations(
+        per_section_durations = _list_scene_durations(
             package.section_word_counts, narration_seconds, len(scenes_in)
         )
     else:
-        per_scene_durations = _scene_durations_from_word_counts(
+        per_section_durations = _scene_durations_from_word_counts(
             package.section_word_counts, narration_seconds
         )
 
+    # Flatten: each section's duration split evenly across its prompts.
+    flat_durations: list[float] = []
+    for scene, section_seconds in zip(scenes_in, per_section_durations):
+        n = max(len(scene.get("prompts") or [""]), 1)
+        per = section_seconds / n
+        flat_durations.extend([per] * n)
+
+    # Snap to frame boundaries (1/30s) so Remotion frame-math lines up.
+    flat_durations = _snap_to_frames(flat_durations, narration_seconds)
+
     ctx["narration_seconds"] = round(narration_seconds, 2)
     ctx["total_seconds"] = round(total_seconds, 2)
+    ctx["total_images"] = total_images
 
     # 5. Music (optional)
     music_path = pick_music_track(tone)
@@ -179,8 +202,16 @@ def _render_inner(package, book, scenes_in, tone, work_dir, ctx, composition, on
     # /renders static mount.
     base_url = f"http://127.0.0.1:8000/renders/{package.id}"
 
+    # Flatten paths to match flat_durations.
+    flat_paths: list[Path] = [p for group in scene_paths for p in group]
+    # Parallel flat list of the owning scene per image, for section/label tagging.
+    flat_scenes: list[dict] = []
+    for scene in scenes_in:
+        n = max(len(scene.get("prompts") or [""]), 1)
+        flat_scenes.extend([scene] * n)
+
     scene_props = []
-    for scene, path, duration in zip(scenes_in, scene_paths, per_scene_durations):
+    for scene, path, duration in zip(flat_scenes, flat_paths, flat_durations):
         sp: dict = {
             "image": f"{base_url}/{path.name}",
             "durationSeconds": duration,
@@ -267,21 +298,45 @@ def pick_music_track(tone: str) -> Path | None:
     return random.choice(tracks)
 
 
-def _normalize_scenes(visual_prompts, fmt: str = "short_hook") -> list[dict]:
-    """Accept both the new shape (list[{section, prompt, focus}]) and the
-    legacy flat-string shape (list[str]) — the latter gets synthesized
-    section labels in canonical order so old packages still render.
+def _snap_to_frames(durations: list[float], total_seconds: float, fps: int = 30) -> list[float]:
+    """Snap each duration to a whole number of frames (1/fps increments).
 
-    For LIST format, scenes use 'label' (book title) instead of 'section'.
+    After snapping, the last scene absorbs any rounding remainder so the
+    total exactly equals `total_seconds`. This prevents black-frame gaps
+    or overlap in Remotion.
     """
+    snapped = [round(d * fps) / fps for d in durations]
+    # Absorb remainder into last scene
+    if snapped:
+        remainder = total_seconds - sum(snapped)
+        snapped[-1] = round((snapped[-1] + remainder) * fps) / fps
+    return snapped
+
+
+def _normalize_scenes(visual_prompts, fmt: str = "short_hook") -> list[dict]:
+    """Normalize visual_prompts into `[{section|label, prompts: list[str], focus}]`.
+
+    Accepts three shapes so old packages still render after the schema change:
+      - new:    {section|label, prompts: [...], focus}
+      - single: {section|label, prompt: "...", focus}   → prompts=[prompt]
+      - legacy: "just a string"                          → prompts=[str]
+    """
+    def _prompts_of(item: dict) -> list[str]:
+        ps = item.get("prompts")
+        if isinstance(ps, list) and ps:
+            return [str(p) for p in ps if p]
+        single = item.get("prompt")
+        return [str(single)] if single else []
+
     out: list[dict] = []
     for i, item in enumerate(visual_prompts):
         if isinstance(item, dict):
+            prompts = _prompts_of(item) or [""]
             if fmt == "list":
                 out.append(
                     {
                         "label": item.get("label", f"book_{i + 1}"),
-                        "prompt": item.get("prompt", ""),
+                        "prompts": prompts,
                         "focus": item.get("focus", ""),
                     }
                 )
@@ -289,18 +344,19 @@ def _normalize_scenes(visual_prompts, fmt: str = "short_hook") -> list[dict]:
                 out.append(
                     {
                         "section": item.get("section") or SECTIONS[min(i, len(SECTIONS) - 1)],
-                        "prompt": item.get("prompt", ""),
+                        "prompts": prompts,
                         "focus": item.get("focus", ""),
                     }
                 )
         else:
+            prompts = [str(item)] if item else [""]
             if fmt == "list":
-                out.append({"label": f"book_{i + 1}", "prompt": str(item), "focus": ""})
+                out.append({"label": f"book_{i + 1}", "prompts": prompts, "focus": ""})
             else:
                 out.append(
                     {
                         "section": SECTIONS[min(i, len(SECTIONS) - 1)],
-                        "prompt": str(item),
+                        "prompts": prompts,
                         "focus": "",
                     }
                 )

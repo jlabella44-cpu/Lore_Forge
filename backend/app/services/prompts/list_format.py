@@ -46,15 +46,18 @@ Return strictly via the `record_list_script` tool.
 """
 
 SCENE_PROMPTS_SYSTEM = """\
-For each book in a "Top N" list video, write one Midjourney/Wanx-style
-image prompt that evokes the book's genre and mood. Focus on settings,
+For each book in a "Top N" list video, write 1-2 Midjourney/Wanx-style
+image prompts that evoke the book's genre and mood. Focus on settings,
 atmospheres, symbolic objects — **no character faces**.
+
+Use 1 prompt for most books. Use 2 prompts when a book's narration runs
+long (>40 words) so the screen doesn't linger on a single image.
 
 All prompts target 9:16 vertical framing. Each prompt should feel distinct
 so the video has visual variety across the list.
 
 Also include an `intro` scene (atmospheric, genre-spanning) and a `cta`
-scene (warm, inviting, books-on-shelf aesthetic).
+scene (warm, inviting, books-on-shelf aesthetic) — each with 1 prompt.
 
 Return via the `record_list_scene_prompts` tool.
 """
@@ -118,10 +121,15 @@ SCENE_PROMPTS_SCHEMA = {
                         "type": "string",
                         "description": "'intro', 'cta', or the book title",
                     },
-                    "prompt": {"type": "string"},
+                    "prompts": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "maxItems": 3,
+                    },
                     "focus": {"type": "string"},
                 },
-                "required": ["label", "prompt", "focus"],
+                "required": ["label", "prompts", "focus"],
             },
         },
     },
