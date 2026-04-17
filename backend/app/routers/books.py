@@ -47,6 +47,48 @@ def list_books(
     ]
 
 
+@router.get("/history")
+def list_history(db: Session = Depends(get_db)) -> list[dict]:
+    """Books that have been rendered at least once, most-recent render first.
+
+    One row per book (not per package) — if a book has multiple rendered
+    revisions we surface the latest. Each row carries the deep-link target
+    (`latest_package_id`) plus enough render metadata for the dashboard:
+    duration, size, timestamp, and book lifecycle status.
+    """
+    rendered = (
+        db.query(ContentPackage, Book)
+        .join(Book, Book.id == ContentPackage.book_id)
+        .filter(ContentPackage.rendered_at.is_not(None))
+        .order_by(ContentPackage.rendered_at.desc())
+        .all()
+    )
+
+    seen: set[int] = set()
+    out: list[dict] = []
+    for pkg, book in rendered:
+        if book.id in seen:
+            continue
+        seen.add(book.id)
+        out.append(
+            {
+                "book_id": book.id,
+                "title": book.title,
+                "author": book.author,
+                "cover_url": book.cover_url,
+                "genre": book.genre_override or book.genre,
+                "status": book.status,
+                "latest_package_id": pkg.id,
+                "revision_number": pkg.revision_number,
+                "rendered_at": pkg.rendered_at.isoformat() if pkg.rendered_at else None,
+                "rendered_duration_seconds": pkg.rendered_duration_seconds,
+                "rendered_size_bytes": pkg.rendered_size_bytes,
+                "needs_rerender": _needs_rerender(pkg),
+            }
+        )
+    return out
+
+
 @router.get("/{book_id}")
 def get_book(book_id: int, db: Session = Depends(get_db)) -> dict:
     book = db.get(Book, book_id)

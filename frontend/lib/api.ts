@@ -91,6 +91,25 @@ export type Job = {
   error: string | null;
 };
 
+// ---------------------------------------------------------------------------
+// History
+// ---------------------------------------------------------------------------
+
+export type HistoryRow = {
+  book_id: number;
+  title: string;
+  author: string;
+  cover_url: string | null;
+  genre: string | null;
+  status: string;
+  latest_package_id: number;
+  revision_number: number;
+  rendered_at: string | null;
+  rendered_duration_seconds: number | null;
+  rendered_size_bytes: number | null;
+  needs_rerender: boolean;
+};
+
 /**
  * Poll GET /jobs/{id} every `intervalMs` until it reaches a terminal state.
  * Calls `onProgress` with each intermediate snapshot so the UI can show

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   BookOpen,
   BarChart3,
+  History,
   Layers,
   Settings,
   Flame,
@@ -13,6 +14,7 @@ import {
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Books", icon: BookOpen },
   { href: "/series", label: "Series", icon: Layers },
+  { href: "/history", label: "History", icon: History },
   { href: "/settings", label: "Costs", icon: BarChart3 },
   { href: "/analytics", label: "Analytics", icon: Settings },
 ] as const;
