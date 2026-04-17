@@ -224,7 +224,13 @@ def prune_renders(
 ) -> dict:
     """Delete on-disk renders + clear render-metadata for never-published
     packages older than `max_age_days`. Defaults to `settings.render_retention_days`
-    (30); set to 0 or negative in config to disable the endpoint entirely."""
+    (30); set to 0 or negative in config to disable the endpoint entirely.
+
+    Also LRU-prunes the image asset cache using
+    `settings.image_cache_retention_days` (independent knob), so stale
+    per-prompt blobs don't leak disk indefinitely. The image-cache sweep
+    is best-effort — a failure there doesn't roll back the renders prune.
+    """
     days = max_age_days if max_age_days is not None else settings.render_retention_days
     if days <= 0:
         raise HTTPException(
@@ -234,7 +240,14 @@ def prune_renders(
                 "(RENDER_RETENTION_DAYS <= 0); pass ?max_age_days=N to override."
             ),
         )
-    return render_retention.prune_stale_renders(db, max_age_days=days)
+    result = render_retention.prune_stale_renders(db, max_age_days=days)
+
+    cache_days = settings.image_cache_retention_days
+    if cache_days > 0:
+        result["image_cache"] = render_retention.prune_stale_image_cache(
+            db, max_age_days=cache_days
+        )
+    return result
 
 
 # ---------------------------------------------------------------------------
