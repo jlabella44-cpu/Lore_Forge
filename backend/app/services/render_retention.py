@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.clock import utc_now
 from app.config import settings
-from app.models import Book, ContentPackage
+from app.models import Book, ContentPackage, ImageAssetCache
 from app.observability import log_call
 
 
@@ -90,3 +90,50 @@ def _dir_size(path: Path) -> int:
             except OSError:
                 pass
     return total
+
+
+def prune_stale_image_cache(db: Session, max_age_days: int) -> dict:
+    """LRU-prune the image_asset_cache: drop rows whose `last_used_at` is
+    older than the cutoff and delete their blobs from disk.
+
+    Unlike `prune_stale_renders`, there's no per-package or publish-status
+    coupling — a cache row is just "image N hasn't been needed in X days",
+    so the eligibility is pure last_used_at.
+    """
+    if max_age_days <= 0:
+        raise ValueError("max_age_days must be > 0 to prune")
+
+    cutoff = utc_now() - timedelta(days=max_age_days)
+
+    stale = (
+        db.query(ImageAssetCache)
+        .filter(ImageAssetCache.last_used_at < cutoff)
+        .all()
+    )
+
+    removed = 0
+    freed_bytes = 0
+    with log_call(
+        "render_retention.prune_stale_image_cache",
+        max_age_days=max_age_days,
+        candidates=len(stale),
+    ) as ctx:
+        for row in stale:
+            blob = Path(row.file_path)
+            if blob.exists():
+                try:
+                    freed_bytes += blob.stat().st_size
+                    blob.unlink()
+                except OSError:
+                    pass
+            db.delete(row)
+            removed += 1
+        db.commit()
+        ctx["removed_count"] = removed
+        ctx["freed_mb"] = round(freed_bytes / 1_048_576, 2)
+
+    return {
+        "removed_count": removed,
+        "freed_bytes": freed_bytes,
+        "cutoff_iso": cutoff.isoformat(),
+    }

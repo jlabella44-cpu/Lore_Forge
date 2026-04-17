@@ -21,7 +21,7 @@ import httpx
 
 from app.config import settings
 from app.observability import log_call
-from app.services import cost
+from app.services import cost, image_cache
 
 Provider = Literal[
     "wanx",
@@ -40,9 +40,21 @@ _WANX_SIZE_BY_ASPECT = {
     "1:1": "1024*1024",
 }
 
+# Canonical (provider, model) pairs — used as the cache key's model
+# component so a model bump invalidates cached bytes automatically.
+_PROVIDER_MODEL: dict[str, str] = {
+    "wanx": "wanx2.1-t2i-turbo",
+    "dalle": "dall-e-3",
+}
+
 
 def generate(prompt: str, out_path: str | Path, *, aspect: str = "9:16") -> str:
-    """Render one image to `out_path`. Returns the path as a string."""
+    """Render one image to `out_path`. Returns the path as a string.
+
+    Goes through `image_cache.get_or_generate` so identical prompts don't
+    re-issue provider API calls across failed/rerun jobs. Cost is only
+    recorded on a cache miss.
+    """
     provider: Provider = settings.image_provider  # type: ignore[assignment]
     out_path = Path(out_path)
     out_path.parent.mkdir(parents=True, exist_ok=True)
@@ -52,23 +64,15 @@ def generate(prompt: str, out_path: str | Path, *, aspect: str = "9:16") -> str:
         provider=provider,
         aspect=aspect,
         out=out_path.name,
-    ):
+    ) as ctx:
         if provider == "wanx":
-            _wanx_generate(prompt, out_path, aspect)
-            try:
-                cost.record_image(
-                    provider="wanx", model="wanx2.1-t2i-turbo", count=1
-                )
-            except Exception:
-                pass
+            produce = lambda p: _wanx_generate(prompt, p, aspect)
+            cache_model = _PROVIDER_MODEL["wanx"]
+            cost_kwargs = {"provider": "wanx", "model": cache_model}
         elif provider == "dalle":
-            _dalle_generate(prompt, out_path, aspect)
-            try:
-                cost.record_image(
-                    provider="dalle", model="dall-e-3", count=1
-                )
-            except Exception:
-                pass
+            produce = lambda p: _dalle_generate(prompt, p, aspect)
+            cache_model = _PROVIDER_MODEL["dalle"]
+            cost_kwargs = {"provider": "dalle", "model": cache_model}
         elif provider == "imagen":
             raise NotImplementedError("Imagen 3 — not yet wired (Phase 2+).")
         elif provider == "replicate":
@@ -82,6 +86,21 @@ def generate(prompt: str, out_path: str | Path, *, aspect: str = "9:16") -> str:
             )
         else:
             raise ValueError(f"Unknown image provider: {provider!r}")
+
+        hit = image_cache.get_or_generate(
+            prompt=prompt,
+            out_path=out_path,
+            provider=provider,
+            model=cache_model,
+            aspect=aspect,
+            produce=produce,
+        )
+        ctx["cache"] = "hit" if hit else "miss"
+        if not hit:
+            try:
+                cost.record_image(count=1, **cost_kwargs)
+            except Exception:
+                pass
 
     return str(out_path)
 

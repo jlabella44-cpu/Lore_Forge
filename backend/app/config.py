@@ -60,6 +60,16 @@ class Settings(BaseSettings):
     # Set to 0 or negative to disable (the endpoint will 400).
     render_retention_days: int = 30
 
+    # ---- Image asset cache ----
+    # Dedups image provider API calls across failed/rerun jobs by hashing
+    # (provider, model, aspect, prompt) and caching the bytes under
+    # `{renders_dir}/_cache/images/`. Disable to force every render to
+    # re-issue fresh calls (useful when debugging a provider).
+    image_cache_enabled: bool = True
+    # LRU cutoff for `prune_stale_image_cache` — rows (and their blobs)
+    # with `last_used_at` older than this are deleted.
+    image_cache_retention_days: int = 30
+
     # ---- LLM keys ----
     anthropic_api_key: str = ""
     claude_model: str = "claude-opus-4-6"
