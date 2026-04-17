@@ -329,14 +329,14 @@ def _openai_compat_call(
     return json.loads(resp.choices[0].message.content)
 
 
-def _dispatch(
+def dispatch(
     role: str,
     system: str,
     user: str,
     tool_name: str,
     schema: dict,
 ) -> dict:
-    """role: 'script' → SCRIPT_PROVIDER, 'meta' → META_PROVIDER."""
+    """Public LLM dispatch. role: 'script' → SCRIPT_PROVIDER, 'meta' → META_PROVIDER."""
     provider = settings.script_provider if role == "script" else settings.meta_provider
     call_name = f"llm.{tool_name}"
 
@@ -399,7 +399,7 @@ def classify_genre(
         f"Author: {author}\n"
         f"Description: {description or '(none provided)'}"
     )
-    out = _dispatch("meta", system, user, "record_genre", schema)
+    out = dispatch("meta", system, user, "record_genre", schema)
     return out["genre"], float(out["confidence"])
 
 
@@ -420,7 +420,7 @@ def generate_hooks(
         f"Genre: {genre}\n"
         f"Description: {description or '(none provided)'}"
     )
-    out = _dispatch("script", _HOOKS_SYSTEM, user, "record_hooks", _HOOKS_SCHEMA)
+    out = dispatch("script", _HOOKS_SYSTEM, user, "record_hooks", _HOOKS_SCHEMA)
     # Clamp the index in case the model hallucinates past the array length.
     out["chosen_index"] = max(0, min(2, int(out["chosen_index"])))
     return out
@@ -452,7 +452,7 @@ def generate_script(
             "Revision note — please address this in the new draft:\n" + note
         )
     user = "\n".join(lines)
-    return _dispatch(
+    return dispatch(
         "script", _SCRIPT_SYSTEM, user, "record_script", _SCRIPT_SCHEMA
     )
 
@@ -470,7 +470,7 @@ def generate_scene_prompts(
         f"[{s.upper()}]\n{sections.get(s, '').strip()}" for s in SECTIONS
     )
     user = f"Genre: {genre}\n\nScript sections:\n{body}"
-    return _dispatch(
+    return dispatch(
         "script",
         _SCENE_PROMPTS_SYSTEM,
         user,
@@ -482,7 +482,7 @@ def generate_scene_prompts(
 def generate_platform_meta(*, script: str, genre: str) -> dict:
     """Stage 4. Returns {titles: {...}, hashtags: {...}}."""
     user = f"Genre: {genre}\n\nScript:\n{script}"
-    return _dispatch("meta", _META_SYSTEM, user, "record_meta", _META_SCHEMA)
+    return dispatch("meta", _META_SYSTEM, user, "record_meta", _META_SCHEMA)
 
 
 # ---------------------------------------------------------------------------

@@ -176,7 +176,7 @@ def test_render_orchestrates_tts_images_and_remotion(client, approved_package):
         out_path.write_bytes(b"\x89PNG\r\n\x1a\n")
         return str(out_path)
 
-    def fake_run(cmd, cwd, capture_output, text):
+    def fake_run(cmd, cwd, capture_output, text, **kwargs):
         # Simulate Remotion producing the out.mp4 on disk.
         out_mp4 = Path(cmd[cmd.index("LoreForge") + 1])
         out_mp4.parent.mkdir(parents=True, exist_ok=True)
@@ -327,7 +327,7 @@ def test_render_surfaces_remotion_failure(client, approved_package):
         out.write_bytes(b"x")
         return str(out)
 
-    def failing_remotion(cmd, cwd, capture_output, text):
+    def failing_remotion(cmd, cwd, capture_output, text, **kwargs):
         rv = MagicMock()
         rv.returncode = 1
         rv.stderr = "bundler exploded\nDetails here"
@@ -376,7 +376,7 @@ def test_render_skips_whisper_when_captions_already_persisted(client, approved_p
         out.write_bytes(b"x")
         return str(out)
 
-    def fake_run(cmd, cwd, capture_output, text):
+    def fake_run(cmd, cwd, capture_output, text, **kwargs):
         out_mp4 = Path(cmd[cmd.index("LoreForge") + 1])
         out_mp4.parent.mkdir(parents=True, exist_ok=True)
         out_mp4.write_bytes(b"x")
@@ -446,7 +446,7 @@ def test_render_persists_metadata_and_flips_needs_rerender(client, approved_pack
         out.write_bytes(b"x")
         return str(out)
 
-    def fake_run(cmd, cwd, capture_output, text):
+    def fake_run(cmd, cwd, capture_output, text, **kwargs):
         out_mp4 = Path(cmd[cmd.index("LoreForge") + 1])
         out_mp4.parent.mkdir(parents=True, exist_ok=True)
         out_mp4.write_bytes(b"fake_mp4_bytes" * 500)
@@ -509,7 +509,7 @@ def _fake_render_triplet(tmp_path):
         out.write_bytes(b"x")
         return str(out)
 
-    def fake_run(cmd, cwd, capture_output, text):
+    def fake_run(cmd, cwd, capture_output, text, **kwargs):
         out_mp4 = Path(cmd[cmd.index("LoreForge") + 1])
         out_mp4.parent.mkdir(parents=True, exist_ok=True)
         out_mp4.write_bytes(b"x")

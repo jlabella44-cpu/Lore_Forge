@@ -52,3 +52,27 @@ export const packagePropsSchema = z.object({
   durationSeconds: z.number().min(10).max(120),
 });
 export type PackageProps = z.infer<typeof packagePropsSchema>;
+
+// ---------------------------------------------------------------------------
+// LIST format — variable-length scenes keyed by book title, not section
+// ---------------------------------------------------------------------------
+
+export const listSceneSchema = z.object({
+  label: z.string(),
+  image: z.string(),
+  durationSeconds: z.number().min(0.3).max(120),
+});
+export type ListScene = z.infer<typeof listSceneSchema>;
+
+export const listPropsSchema = z.object({
+  tone: toneSchema,
+  title: z.string(),
+  author: z.string(),
+  cardSeconds: z.number().default(2),
+  scenes: z.array(listSceneSchema).min(1),
+  audio: z.string().optional(),
+  music: z.string().optional(),
+  captions: z.array(captionWordSchema).default([]),
+  durationSeconds: z.number().min(10).max(600),
+});
+export type ListProps = z.infer<typeof listPropsSchema>;

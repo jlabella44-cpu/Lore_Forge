@@ -66,7 +66,14 @@ def tone_for(genre: str | None) -> str:
     return GENRE_TONE.get(genre or "other", "dark")
 
 
-def render_package(package, book) -> dict:
+# Format → Remotion composition name.
+FORMAT_COMPOSITION: dict[str, str] = {
+    "short_hook": "LoreForge",
+    "list": "LoreForgeList",
+}
+
+
+def render_package(package, book, on_progress=None) -> dict:
     """End-to-end render. Returns:
         {file_path, duration_seconds, size_bytes, tone, work_dir}
     """
@@ -76,14 +83,23 @@ def render_package(package, book) -> dict:
         raise RuntimeError("Package has no narration text")
     if not package.visual_prompts:
         raise RuntimeError("Package has no visual prompts")
-    if not package.section_word_counts:
-        raise RuntimeError("Package has no section_word_counts")
 
-    scenes_in = _normalize_scenes(package.visual_prompts)
-    if len(scenes_in) != len(SECTIONS):
-        raise RuntimeError(
-            f"Expected {len(SECTIONS)} scene prompts, got {len(scenes_in)}"
-        )
+    fmt = getattr(package, "format", "short_hook") or "short_hook"
+    composition = FORMAT_COMPOSITION.get(fmt)
+    if not composition:
+        raise RuntimeError(f"No Remotion composition registered for format {fmt!r}")
+
+    scenes_in = _normalize_scenes(package.visual_prompts, fmt)
+    if fmt == "short_hook":
+        if not package.section_word_counts:
+            raise RuntimeError("Package has no section_word_counts")
+        if len(scenes_in) != len(SECTIONS):
+            raise RuntimeError(
+                f"Expected {len(SECTIONS)} scene prompts, got {len(scenes_in)}"
+            )
+
+    if on_progress is None:
+        on_progress = lambda _msg: None
 
     genre = (book.genre_override or book.genre or "other")
     tone = tone_for(genre)
@@ -93,27 +109,32 @@ def render_package(package, book) -> dict:
 
     # The outer log_call wraps the whole pipeline so the summary line shows
     # total wall-clock; inner service-layer log_calls show per-stage timing.
-    return _render_with_log(package, book, scenes_in, tone, work_dir)
+    return _render_with_log(package, book, scenes_in, tone, work_dir, composition, on_progress)
 
 
-def _render_with_log(package, book, scenes_in, tone, work_dir) -> dict:
+def _render_with_log(package, book, scenes_in, tone, work_dir, composition, on_progress) -> dict:
     with log_call(
         "renderer.render_package",
         package_id=package.id,
         book_id=book.id,
         tone=tone,
         scene_count=len(scenes_in),
+        composition=composition,
     ) as ctx:
-        return _render_inner(package, book, scenes_in, tone, work_dir, ctx)
+        return _render_inner(package, book, scenes_in, tone, work_dir, ctx, composition, on_progress)
 
 
-def _render_inner(package, book, scenes_in, tone, work_dir, ctx) -> dict:
+def _render_inner(package, book, scenes_in, tone, work_dir, ctx, composition, on_progress) -> dict:
+
+    total_scenes = len(scenes_in)
 
     # 1. Narration
+    on_progress(f"Step 1/4: generating narration audio")
     narration_path = work_dir / "narration.mp3"
     tts.synthesize(package.narration, tone, narration_path)
 
     # 2. Captions — only re-transcribe if we don't have them yet
+    on_progress(f"Step 2/4: transcribing captions")
     if package.captions:
         captions = package.captions
     else:
@@ -123,21 +144,29 @@ def _render_inner(package, book, scenes_in, tone, work_dir, ctx) -> dict:
         if session is not None:
             session.commit()
 
-    # 3. Image gen — one per section, serial to keep Dashscope pressure low
+    # 3. Image gen — one per scene, serial
     scene_paths: list[Path] = []
     for i, scene in enumerate(scenes_in, start=1):
-        out = work_dir / f"scene_{i:02d}_{scene['section']}.png"
+        label = scene.get("section") or scene.get("label") or f"scene_{i}"
+        on_progress(f"Step 3/4: generating image {i}/{total_scenes} ({label})")
+        out = work_dir / f"scene_{i:02d}_{label}.png"
         images.generate(scene["prompt"], out, aspect="9:16")
         scene_paths.append(out)
 
-    # 4. Duration math — split narration across sections by word count
+    # 4. Duration math — split narration across scenes by word count
     narration_seconds = probe_duration(narration_path)
     card_seconds = 2.0
     total_seconds = narration_seconds + card_seconds * 2
 
-    per_scene_durations = _scene_durations_from_word_counts(
-        package.section_word_counts, narration_seconds
-    )
+    fmt = getattr(package, "format", "short_hook") or "short_hook"
+    if fmt == "list":
+        per_scene_durations = _list_scene_durations(
+            package.section_word_counts, narration_seconds, len(scenes_in)
+        )
+    else:
+        per_scene_durations = _scene_durations_from_word_counts(
+            package.section_word_counts, narration_seconds
+        )
 
     ctx["narration_seconds"] = round(narration_seconds, 2)
     ctx["total_seconds"] = round(total_seconds, 2)
@@ -145,21 +174,30 @@ def _render_inner(package, book, scenes_in, tone, work_dir, ctx) -> dict:
     # 5. Music (optional)
     music_path = pick_music_track(tone)
 
-    # 6. Remotion props — new section-anchored shape
+    # 6. Remotion props
+    # Remotion needs http:// URLs for assets. Serve them from the backend's
+    # /renders static mount.
+    base_url = f"http://127.0.0.1:8000/renders/{package.id}"
+
+    scene_props = []
+    for scene, path, duration in zip(scenes_in, scene_paths, per_scene_durations):
+        sp: dict = {
+            "image": f"{base_url}/{path.name}",
+            "durationSeconds": duration,
+        }
+        if "section" in scene:
+            sp["section"] = scene["section"]
+        if "label" in scene:
+            sp["label"] = scene["label"]
+        scene_props.append(sp)
+
     props: dict = {
         "tone": tone,
         "title": book.title,
         "author": book.author,
         "cardSeconds": card_seconds,
-        "scenes": [
-            {
-                "section": scene["section"],
-                "image": str(path.resolve()),
-                "durationSeconds": duration,
-            }
-            for scene, path, duration in zip(scenes_in, scene_paths, per_scene_durations)
-        ],
-        "audio": str(narration_path.resolve()),
+        "scenes": scene_props,
+        "audio": f"{base_url}/narration.mp3",
         "captions": captions,
         "durationSeconds": total_seconds,
     }
@@ -170,9 +208,10 @@ def _render_inner(package, book, scenes_in, tone, work_dir, ctx) -> dict:
     props_path.write_text(json.dumps(props, indent=2))
 
     # 7. Render
+    on_progress(f"Step 4/4: assembling video ({composition})")
     out_mp4 = work_dir / "out.mp4"
-    with log_call("renderer.remotion_cli", package_id=package.id):
-        _run_remotion(props_path, out_mp4)
+    with log_call("renderer.remotion_cli", package_id=package.id, composition=composition):
+        _run_remotion(props_path, out_mp4, composition)
 
     size_bytes = out_mp4.stat().st_size
     ctx["size_mb"] = round(size_bytes / 1_048_576, 2)
@@ -228,28 +267,43 @@ def pick_music_track(tone: str) -> Path | None:
     return random.choice(tracks)
 
 
-def _normalize_scenes(visual_prompts) -> list[dict]:
+def _normalize_scenes(visual_prompts, fmt: str = "short_hook") -> list[dict]:
     """Accept both the new shape (list[{section, prompt, focus}]) and the
     legacy flat-string shape (list[str]) — the latter gets synthesized
-    section labels in canonical order so old packages still render."""
+    section labels in canonical order so old packages still render.
+
+    For LIST format, scenes use 'label' (book title) instead of 'section'.
+    """
     out: list[dict] = []
     for i, item in enumerate(visual_prompts):
         if isinstance(item, dict):
-            out.append(
-                {
-                    "section": item.get("section") or SECTIONS[min(i, len(SECTIONS) - 1)],
-                    "prompt": item.get("prompt", ""),
-                    "focus": item.get("focus", ""),
-                }
-            )
+            if fmt == "list":
+                out.append(
+                    {
+                        "label": item.get("label", f"book_{i + 1}"),
+                        "prompt": item.get("prompt", ""),
+                        "focus": item.get("focus", ""),
+                    }
+                )
+            else:
+                out.append(
+                    {
+                        "section": item.get("section") or SECTIONS[min(i, len(SECTIONS) - 1)],
+                        "prompt": item.get("prompt", ""),
+                        "focus": item.get("focus", ""),
+                    }
+                )
         else:
-            out.append(
-                {
-                    "section": SECTIONS[min(i, len(SECTIONS) - 1)],
-                    "prompt": str(item),
-                    "focus": "",
-                }
-            )
+            if fmt == "list":
+                out.append({"label": f"book_{i + 1}", "prompt": str(item), "focus": ""})
+            else:
+                out.append(
+                    {
+                        "section": SECTIONS[min(i, len(SECTIONS) - 1)],
+                        "prompt": str(item),
+                        "focus": "",
+                    }
+                )
     return out
 
 
@@ -290,22 +344,72 @@ def _scene_durations_from_word_counts(
     return [round(x, 3) for x in result]
 
 
-def _run_remotion(props_path: Path, out_mp4: Path) -> None:
+def _list_scene_durations(
+    book_word_counts: list | dict | None,
+    narration_seconds: float,
+    scene_count: int,
+) -> list[float]:
+    """Compute per-scene durations for LIST format.
+
+    `book_word_counts` is a list[{title, words}] from the LLM. If missing
+    or malformed, fall back to even split.
+    """
+    if isinstance(book_word_counts, list) and book_word_counts:
+        counts = [max(0, int(entry.get("words", 0))) for entry in book_word_counts]
+        # Pad or trim to match actual scene count
+        while len(counts) < scene_count:
+            counts.append(0)
+        counts = counts[:scene_count]
+    else:
+        counts = [1] * scene_count
+
+    total_words = sum(counts)
+    if total_words == 0:
+        per = narration_seconds / max(scene_count, 1)
+        return [round(per, 3)] * scene_count
+
+    raw = [c / total_words * narration_seconds for c in counts]
+
+    # Floor at 1.5s per scene.
+    floor = 1.5
+    debt = 0.0
+    result: list[float] = []
+    for d in raw:
+        if d < floor:
+            debt += floor - d
+            result.append(floor)
+        else:
+            result.append(d)
+    if debt > 0:
+        long_total = sum(r for r in result if r > floor)
+        if long_total > 0:
+            for i, r in enumerate(result):
+                if r > floor:
+                    result[i] = max(floor, r - debt * (r / long_total))
+    return [round(x, 3) for x in result]
+
+
+def _run_remotion(props_path: Path, out_mp4: Path, composition: str = "LoreForge") -> None:
+    import platform
+
     remotion_dir = Path(settings.remotion_dir).resolve()
     cmd = [
         "npx",
         "remotion",
         "render",
         "src/index.ts",
-        "LoreForge",
+        composition,
         str(out_mp4.resolve()),
         f"--props={props_path.resolve()}",
     ]
+    # On Windows, npx is a .cmd file — subprocess needs shell=True to find it.
+    use_shell = platform.system() == "Windows"
     proc = subprocess.run(  # noqa: S603
         cmd,
         cwd=str(remotion_dir),
         capture_output=True,
         text=True,
+        shell=use_shell,
     )
     if proc.returncode != 0:
         tail = (proc.stderr or "")[-2000:]

@@ -62,7 +62,13 @@ def generate(prompt: str, out_path: str | Path, *, aspect: str = "9:16") -> str:
             except Exception:
                 pass
         elif provider == "dalle":
-            raise NotImplementedError("DALL-E 3 — not yet wired (Phase 2+).")
+            _dalle_generate(prompt, out_path, aspect)
+            try:
+                cost.record_image(
+                    provider="dalle", model="dall-e-3", count=1
+                )
+            except Exception:
+                pass
         elif provider == "imagen":
             raise NotImplementedError("Imagen 3 — not yet wired (Phase 2+).")
         elif provider == "replicate":
@@ -81,6 +87,39 @@ def generate(prompt: str, out_path: str | Path, *, aspect: str = "9:16") -> str:
 
 
 # ---------------------------------------------------------------------------
+
+
+_DALLE_SIZE_BY_ASPECT = {
+    "9:16": "1024x1792",
+    "16:9": "1792x1024",
+    "1:1": "1024x1024",
+}
+
+
+def _dalle_generate(prompt: str, out_path: Path, aspect: str) -> None:
+    """OpenAI DALL-E 3 → download image to `out_path`."""
+    from openai import OpenAI
+
+    if not settings.openai_api_key:
+        raise RuntimeError("OPENAI_API_KEY is not set")
+
+    client = OpenAI(api_key=settings.openai_api_key)
+    size = _DALLE_SIZE_BY_ASPECT.get(aspect, _DALLE_SIZE_BY_ASPECT["9:16"])
+
+    resp = client.images.generate(
+        model="dall-e-3",
+        prompt=prompt,
+        n=1,
+        size=size,
+        quality="standard",
+    )
+    url = resp.data[0].url
+    if not url:
+        raise RuntimeError("DALL-E returned no image URL")
+
+    img_resp = httpx.get(url, timeout=60.0)
+    img_resp.raise_for_status()
+    out_path.write_bytes(img_resp.content)
 
 
 def _wanx_generate(prompt: str, out_path: Path, aspect: str) -> None:

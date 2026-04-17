@@ -204,7 +204,7 @@ def test_render_async_returns_202_and_result(client, approved_package, inline_jo
         out.write_bytes(b"\x89PNG")
         return str(out)
 
-    def fake_run(cmd, cwd, capture_output, text):
+    def fake_run(cmd, cwd, capture_output, text, **kwargs):
         from unittest.mock import MagicMock
 
         out_mp4 = Path(cmd[cmd.index("LoreForge") + 1])
@@ -239,7 +239,7 @@ def test_render_async_captures_remotion_failure(client, approved_package, inline
 
     pid = approved_package
 
-    def failing_remotion(cmd, cwd, capture_output, text):
+    def failing_remotion(cmd, cwd, capture_output, text, **kwargs):
         rv = MagicMock()
         rv.returncode = 1
         rv.stderr = "bundler exploded\nDetails here"

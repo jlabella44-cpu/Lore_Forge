@@ -15,8 +15,10 @@ from app.config import settings
 from app.context import package_context
 from app.db import get_db
 from app.models import Book, ContentPackage
+from app.models.format import VideoFormat
 from app.observability import log_call
 from app.services import amazon, cost, jobs, llm, renderer, render_retention
+from app.services.prompts import get_bundle
 
 router = APIRouter()
 
@@ -330,11 +332,10 @@ def _render_worker(job_id: int, *, package_id: int) -> None:
         book = db.get(Book, package.book_id)
         if book is None:
             raise RuntimeError(f"Book {package.book_id} not found")
-        set_progress("rendering: TTS + images + remotion")
         # Render-time services can read package_id directly — the package
         # already exists so cost records get attached at write time.
         with package_context(package_id):
-            result = renderer.render_package(package, book)
+            result = renderer.render_package(package, book, on_progress=set_progress)
         set_progress.result({"package_id": package_id, **result})
 
 
@@ -342,8 +343,11 @@ def _render_worker(job_id: int, *, package_id: int) -> None:
 # Core generation logic (shared by both paths)
 # ---------------------------------------------------------------------------
 
-def _generate_core(db: Session, book: Book, genre: str, note: str | None) -> dict:
-    return _generate_core_with_progress(db, book, genre, note, lambda _msg: None)
+def _generate_core(
+    db: Session, book: Book, genre: str, note: str | None,
+    fmt: str = "short_hook",
+) -> dict:
+    return _generate_core_with_progress(db, book, genre, note, lambda _msg: None, fmt=fmt)
 
 
 def _generate_core_with_progress(
@@ -352,41 +356,38 @@ def _generate_core_with_progress(
     genre: str,
     note: str | None,
     set_progress,
+    *,
+    fmt: str = "short_hook",
+    series_id: int | None = None,
+    part_number: int | None = None,
+    books_for_list: list[Book] | None = None,
 ) -> dict:
+    """Run the staged LLM pipeline, format-aware.
+
+    For SHORT_HOOK: uses the original 4-stage pipeline (hooks → script →
+    scene prompts → meta). `book` is the single target.
+
+    For LIST: skips hooks (the concept IS the hook), generates a list script
+    from `books_for_list`, scene prompts per book, and meta. `book` is
+    treated as the "anchor" for affiliate links / revision tracking.
+    """
+    bundle = get_bundle(fmt)
+
     with log_call(
         "generate.pipeline",
         book_id=book.id,
         genre=genre,
         has_note=bool(note),
+        format=fmt,
     ):
-        set_progress("Stage 1/4: hook portfolio")
-        hooks = llm.generate_hooks(
-            title=book.title,
-            author=book.author,
-            description=book.description,
-            genre=genre,
-        )
-        chosen_hook_text = hooks["alternatives"][hooks["chosen_index"]]["text"]
-
-        set_progress("Stage 2/4: writing script")
-        script_pkg = llm.generate_script(
-            title=book.title,
-            author=book.author,
-            description=book.description,
-            genre=genre,
-            chosen_hook=chosen_hook_text,
-            note=note,
-        )
-
-        set_progress("Stage 3/4: scene prompts")
-        scene_pkg = llm.generate_scene_prompts(
-            script=script_pkg["script"], genre=genre
-        )
-
-        set_progress("Stage 4/4: per-platform meta")
-        meta = llm.generate_platform_meta(
-            script=script_pkg["script"], genre=genre
-        )
+        if fmt == "short_hook":
+            result_pkg = _pipeline_short_hook(book, genre, note, set_progress)
+        elif fmt == "list":
+            result_pkg = _pipeline_list(
+                book, genre, note, set_progress, books_for_list or [], bundle
+            )
+        else:
+            raise ValueError(f"No pipeline implemented for format {fmt!r}")
 
         affiliate_amazon, affiliate_bookshop = _affiliate_links(book.isbn)
 
@@ -399,18 +400,21 @@ def _generate_core_with_progress(
         package = ContentPackage(
             book_id=book.id,
             revision_number=last_revision + 1,
-            script=script_pkg["script"],
-            narration=script_pkg["narration"],
-            section_word_counts=script_pkg["section_word_counts"],
-            hook_alternatives=hooks["alternatives"],
-            chosen_hook_index=hooks["chosen_index"],
-            visual_prompts=scene_pkg["scenes"],
-            titles=meta["titles"],
-            hashtags=meta["hashtags"],
+            script=result_pkg["script"],
+            narration=result_pkg["narration"],
+            section_word_counts=result_pkg.get("section_word_counts"),
+            hook_alternatives=result_pkg.get("hook_alternatives"),
+            chosen_hook_index=result_pkg.get("chosen_hook_index"),
+            visual_prompts=result_pkg["visual_prompts"],
+            titles=result_pkg["titles"],
+            hashtags=result_pkg["hashtags"],
             affiliate_amazon=affiliate_amazon,
             affiliate_bookshop=affiliate_bookshop,
             regenerate_note=note,
             is_approved=False,
+            format=fmt,
+            series_id=series_id,
+            part_number=part_number,
         )
         db.add(package)
         # Commit (not just flush) so SQLite releases the write lock before
@@ -424,6 +428,120 @@ def _generate_core_with_progress(
             "package_id": package.id,
             "revision_number": package.revision_number,
         }
+
+
+# ---------------------------------------------------------------------------
+# Per-format pipelines
+# ---------------------------------------------------------------------------
+
+def _pipeline_short_hook(
+    book: Book, genre: str, note: str | None, set_progress,
+) -> dict:
+    """Original 4-stage pipeline for single-book short-hook videos."""
+    set_progress("Stage 1/4: hook portfolio")
+    hooks = llm.generate_hooks(
+        title=book.title,
+        author=book.author,
+        description=book.description,
+        genre=genre,
+    )
+    chosen_hook_text = hooks["alternatives"][hooks["chosen_index"]]["text"]
+
+    set_progress("Stage 2/4: writing script")
+    script_pkg = llm.generate_script(
+        title=book.title,
+        author=book.author,
+        description=book.description,
+        genre=genre,
+        chosen_hook=chosen_hook_text,
+        note=note,
+    )
+
+    set_progress("Stage 3/4: scene prompts")
+    scene_pkg = llm.generate_scene_prompts(
+        script=script_pkg["script"], genre=genre
+    )
+
+    set_progress("Stage 4/4: per-platform meta")
+    meta = llm.generate_platform_meta(
+        script=script_pkg["script"], genre=genre
+    )
+
+    return {
+        "script": script_pkg["script"],
+        "narration": script_pkg["narration"],
+        "section_word_counts": script_pkg["section_word_counts"],
+        "hook_alternatives": hooks["alternatives"],
+        "chosen_hook_index": hooks["chosen_index"],
+        "visual_prompts": scene_pkg["scenes"],
+        "titles": meta["titles"],
+        "hashtags": meta["hashtags"],
+    }
+
+
+def _pipeline_list(
+    anchor_book: Book,
+    genre: str,
+    note: str | None,
+    set_progress,
+    books: list[Book],
+    bundle,
+) -> dict:
+    """LIST format: intro → N book mini-pitches → CTA."""
+    if not books:
+        raise ValueError("LIST format requires at least one book in books_for_list")
+
+    book_lines = []
+    for i, b in enumerate(books, 1):
+        book_lines.append(
+            f"Book {i}: {b.title} by {b.author}\n"
+            f"  Description: {b.description or '(none)'}"
+        )
+    user_text = (
+        f"List title: Top {len(books)} {genre.replace('_', ' ').title()} Reads\n"
+        f"Genre: {genre}\n\n"
+        + "\n\n".join(book_lines)
+    )
+    if note:
+        user_text += f"\n\nRevision note: {note}"
+
+    set_progress("Stage 1/3: list script")
+    script_pkg = llm.dispatch(
+        "script",
+        bundle.script.system,
+        user_text,
+        bundle.script.tool_name,
+        bundle.script.schema,
+    )
+
+    set_progress("Stage 2/3: scene prompts per book")
+    scene_pkg = llm.dispatch(
+        "script",
+        bundle.scene_prompts.system,
+        f"Books in the list:\n{user_text}\n\nScript:\n{script_pkg['script']}",
+        bundle.scene_prompts.tool_name,
+        bundle.scene_prompts.schema,
+    )
+
+    set_progress("Stage 3/3: per-platform meta")
+    meta = llm.dispatch(
+        "meta",
+        bundle.meta.system,
+        f"Genre: {genre}\n\nScript:\n{script_pkg['script']}",
+        bundle.meta.tool_name,
+        bundle.meta.schema,
+    )
+
+    return {
+        "script": script_pkg["script"],
+        "narration": script_pkg["narration"],
+        "section_word_counts": script_pkg.get("book_word_counts"),
+        "hook_alternatives": None,
+        "chosen_hook_index": None,
+        "visual_prompts": scene_pkg["scenes"],
+        "titles": meta["titles"],
+        "hashtags": meta["hashtags"],
+    }
 
 
 def _affiliate_links(isbn: str | None) -> tuple[str | None, str | None]:
