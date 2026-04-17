@@ -52,7 +52,7 @@ export const LoreForgeList: React.FC<ListProps> = ({
 
       {/* Book scenes — each with title badge */}
       <Sequence from={cardFrames} durationInFrames={sceneTotalFrames}>
-        <ListSceneSequence scenes={scenes} theme={theme} />
+        <ListSceneSequence scenes={scenes} theme={theme} totalFrames={sceneTotalFrames} />
       </Sequence>
 
       {/* Outro */}
@@ -63,7 +63,14 @@ export const LoreForgeList: React.FC<ListProps> = ({
         <OutroCard theme={theme} />
       </Sequence>
 
-      {audio && <Audio src={audio} />}
+      {/* Narration starts after intro card */}
+      {audio && (
+        <Sequence from={cardFrames} durationInFrames={sceneTotalFrames}>
+          <Audio src={audio} />
+        </Sequence>
+      )}
+
+      {/* Background music — runs whole video */}
       {music && <Audio src={music} volume={theme.musicDuckVolume} loop />}
 
       <Sequence from={cardFrames} durationInFrames={sceneTotalFrames}>
@@ -84,9 +91,11 @@ export const LoreForgeList: React.FC<ListProps> = ({
 function ListSceneSequence({
   scenes,
   theme,
+  totalFrames,
 }: {
   scenes: ListScene[];
   theme: (typeof THEMES)[keyof typeof THEMES];
+  totalFrames: number;
 }) {
   const { fps } = useVideoConfig();
 
@@ -97,6 +106,12 @@ function ListSceneSequence({
     cursor += frames;
     return { scene, index, from, frames };
   });
+
+  // Fill rounding gap: stretch/compress last scene to exactly fill totalFrames
+  if (placed.length > 0) {
+    const last = placed[placed.length - 1];
+    last.frames = totalFrames - last.from;
+  }
 
   return (
     <AbsoluteFill>

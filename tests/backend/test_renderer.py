@@ -250,9 +250,9 @@ def test_render_orchestrates_tts_images_and_remotion(client, approved_package):
     # Intermediate assets stayed in the per-package working dir
     work = tmp / "renders" / str(pid)
     assert (work / "narration.mp3").exists()
-    # scene files now encode the section in the filename
-    assert (work / "scene_01_hook.png").exists()
-    assert (work / "scene_05_cta.png").exists()
+    # scene files encode section + prompt index in the filename
+    assert (work / "scene_01_01_hook.png").exists()
+    assert (work / "scene_05_01_cta.png").exists()
     assert (work / "out.mp4").exists()
 
     # Captions persisted to the package

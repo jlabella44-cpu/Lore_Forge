@@ -7,7 +7,7 @@ import type { Scene } from "../types";
  * short crossfade at each boundary and a subtle Ken Burns zoom across the
  * scene's hold time.
  */
-export function SceneSequence({ scenes }: { scenes: Scene[] }) {
+export function SceneSequence({ scenes, totalFrames }: { scenes: Scene[]; totalFrames?: number }) {
   const { fps } = useVideoConfig();
 
   let cursor = 0;
@@ -17,6 +17,13 @@ export function SceneSequence({ scenes }: { scenes: Scene[] }) {
     cursor += frames;
     return { scene, index, from, frames };
   });
+
+  // Fill rounding gap: stretch/compress last scene to exactly fill the
+  // parent's duration so there's no black frame or overlap.
+  if (totalFrames && placed.length > 0) {
+    const last = placed[placed.length - 1];
+    last.frames = totalFrames - last.from;
+  }
 
   return (
     <AbsoluteFill>

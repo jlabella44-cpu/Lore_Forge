@@ -64,14 +64,25 @@ Return strictly via the `record_script` tool.
 """
 
 SCENE_PROMPTS_SYSTEM = """\
-For each of the 5 script sections the user gives you, write one
-Midjourney/Wanx-style image prompt that *visually supports that section's
+For each of the 5 script sections the user gives you, write 1-3
+Midjourney/Wanx-style image prompts that *visually support that section's
 content*. Focus on settings, moods, atmospheres, objects — **no character
 faces** (likeness issues). All prompts target 9:16 vertical framing.
 
-Also attach a short `focus` label per scene describing what the image needs
-to communicate (e.g. "stakes of the world", "emotional climax tease",
-"social proof: bestseller list").
+**How many prompts per section** — count the words in that section's
+narration text (visible in the `[SECTION]` block below) and scale:
+  - short  (<  25 words):   1 prompt
+  - medium (25-50 words):   2 prompts
+  - long   (>  50 words):   3 prompts
+
+When a section gets multiple prompts, each should show a *different*
+beat/angle of the same section (e.g. for world_tease: 1) establishing
+wide shot of the setting, 2) closer detail that hints at stakes). Avoid
+repeating the same composition.
+
+Also attach a short `focus` label per scene describing what the section
+needs to communicate overall (e.g. "stakes of the world", "emotional
+climax tease", "social proof: bestseller list").
 
 Return exactly 5 scenes, in this section order:
   1. hook
@@ -163,10 +174,15 @@ SCENE_PROMPTS_SCHEMA = {
                 "type": "object",
                 "properties": {
                     "section": {"type": "string", "enum": SECTIONS},
-                    "prompt": {"type": "string"},
+                    "prompts": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "minItems": 1,
+                        "maxItems": 3,
+                    },
                     "focus": {"type": "string"},
                 },
-                "required": ["section", "prompt", "focus"],
+                "required": ["section", "prompts", "focus"],
             },
         },
     },

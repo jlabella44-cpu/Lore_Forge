@@ -41,7 +41,7 @@ export const LoreForge: React.FC<PackageProps> = ({
       {/* Scene sequence — one image per script section, each held for its
           proportional share of narration time */}
       <Sequence from={cardFrames} durationInFrames={sceneTotalFrames}>
-        <SceneSequence scenes={scenes} />
+        <SceneSequence scenes={scenes} totalFrames={sceneTotalFrames} />
       </Sequence>
 
       {/* Outro */}
@@ -49,14 +49,17 @@ export const LoreForge: React.FC<PackageProps> = ({
         <OutroCard theme={theme} />
       </Sequence>
 
-      {/* Narration runs the whole video */}
-      {audio && <Audio src={audio} />}
+      {/* Narration starts after the intro card */}
+      {audio && (
+        <Sequence from={cardFrames} durationInFrames={sceneTotalFrames}>
+          <Audio src={audio} />
+        </Sequence>
+      )}
 
-      {/* Background music, ducked */}
+      {/* Background music, ducked — runs the whole video */}
       {music && <Audio src={music} volume={theme.musicDuckVolume} loop />}
 
-      {/* Word-level captions, anchored to the narration timeline. Narration
-          starts cardSeconds in, so we offset the caption window by that much. */}
+      {/* Word-level captions, synced to narration start */}
       <Sequence from={cardFrames} durationInFrames={sceneTotalFrames}>
         <CaptionsOverlay
           captions={captions}

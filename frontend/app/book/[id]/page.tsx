@@ -8,10 +8,19 @@ import { apiFetch, CostSummary, dollars, pollJob, rendersUrl } from "@/lib/api";
 type HookAlternative = { angle: string; text: string };
 
 type Scene = {
-  section: string;
-  prompt: string;
+  section?: string;
+  label?: string;
+  // Back-compat: older packages have `prompt: string`; new ones use `prompts: string[]`.
+  prompt?: string;
+  prompts?: string[];
   focus: string;
 };
+
+function scenePrompts(scene: Scene): string[] {
+  if (scene.prompts && scene.prompts.length > 0) return scene.prompts;
+  if (scene.prompt) return [scene.prompt];
+  return [];
+}
 
 type CaptionWord = {
   word: string;
@@ -504,26 +513,54 @@ function PackageView({
       )}
 
       <Section
-        title={`Image prompts (${pkg.visual_prompts?.length ?? 0})`}
+        title={`Image prompts (${
+          (pkg.visual_prompts ?? []).reduce(
+            (n, s) => n + scenePrompts(s).length,
+            0,
+          )
+        } across ${pkg.visual_prompts?.length ?? 0} sections)`}
       >
         <div className="space-y-3">
-          {(pkg.visual_prompts ?? []).map((scene, i) => (
-            <div
-              key={i}
-              className="flex items-start justify-between gap-3 rounded-md border border-white/5 bg-white/5 p-3"
-            >
-              <div className="flex-1 text-sm">
-                <div className="mb-1 text-xs opacity-60">
+          {(pkg.visual_prompts ?? []).map((scene, i) => {
+            const prompts = scenePrompts(scene);
+            const sectionKey = scene.section ?? scene.label ?? "";
+            return (
+              <div
+                key={i}
+                className="rounded-md border border-white/5 bg-white/5 p-3"
+              >
+                <div className="mb-2 text-xs opacity-60">
                   <span className="mr-2 rounded-full bg-white/10 px-2 py-0.5">
-                    {SECTION_LABEL[scene.section] ?? scene.section}
+                    {SECTION_LABEL[sectionKey] ?? sectionKey}
                   </span>
+                  {prompts.length > 1 && (
+                    <span className="mr-2 rounded-full bg-emerald-500/20 px-2 py-0.5 text-emerald-200">
+                      {prompts.length} images
+                    </span>
+                  )}
                   {scene.focus && <span>{scene.focus}</span>}
                 </div>
-                {scene.prompt}
+                <div className="space-y-2">
+                  {prompts.map((prompt, j) => (
+                    <div
+                      key={j}
+                      className="flex items-start justify-between gap-3 text-sm"
+                    >
+                      <div className="flex-1 border-l border-white/10 pl-3">
+                        {prompts.length > 1 && (
+                          <span className="mr-2 text-xs opacity-40">
+                            #{j + 1}
+                          </span>
+                        )}
+                        {prompt}
+                      </div>
+                      <CopyButton text={prompt} />
+                    </div>
+                  ))}
+                </div>
               </div>
-              <CopyButton text={scene.prompt} />
-            </div>
-          ))}
+            );
+          })}
         </div>
       </Section>
 
