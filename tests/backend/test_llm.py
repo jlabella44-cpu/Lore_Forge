@@ -178,6 +178,117 @@ def test_generate_scene_prompts_feeds_parsed_sections(settings_with_keys):
         assert f"[{section.upper()}]" in user
 
 
+# --- dispatch: dossier threading ------------------------------------------
+
+
+_SAMPLE_DOSSIER = {
+    "setting": {"name": "bioluminescent coral ruins", "era": "far future", "atmosphere": "eerie hush"},
+    "protagonist_sketch": "a marine biologist haunted by loss",
+    "central_conflict": "recovering a vanished research crew",
+    "themes_tropes": ["climate grief", "found family"],
+    "visual_motifs": [
+        "glowing coral lattice",
+        "abandoned submersible",
+        "faded crew photograph",
+    ],
+    "tonal_keywords": ["haunting", "chrome-lit"],
+    "comparable_titles": ["Annihilation"],
+    "reader_reactions": ["I couldn't stop thinking about it"],
+    "content_hooks": ["the coral remembers"],
+    "signature_images": ["a lantern in deep water"],
+}
+
+
+def _last_user_content(mock_client) -> str:
+    return mock_client.return_value.messages.create.call_args.kwargs[
+        "messages"
+    ][0]["content"]
+
+
+def test_generate_hooks_threads_dossier_into_user(settings_with_keys):
+    fake = {
+        "alternatives": [
+            {"angle": "curiosity", "text": "a"},
+            {"angle": "fear", "text": "b"},
+            {"angle": "promise", "text": "c"},
+        ],
+        "chosen_index": 0,
+        "rationale": "",
+    }
+    with patch.object(llm, "_anthropic_client") as c:
+        c.return_value.messages.create.return_value = _claude_tool_response(fake)
+        llm.generate_hooks(
+            title="T", author="A", description="D", genre="scifi",
+            dossier=_SAMPLE_DOSSIER,
+        )
+
+    user = _last_user_content(c)
+    assert "visual_motifs" in user
+    assert "glowing coral lattice" in user
+
+
+def test_generate_script_threads_dossier_into_user(settings_with_keys):
+    fake = {
+        "script": "## HOOK\nh\n\n## WORLD TEASE\nw\n\n## EMOTIONAL PULL\ne\n\n## SOCIAL PROOF\ns\n\n## CTA\nc",
+        "narration": "n",
+        "section_word_counts": {
+            "hook": 1, "world_tease": 1, "emotional_pull": 1,
+            "social_proof": 1, "cta": 1,
+        },
+    }
+    with patch.object(llm, "_anthropic_client") as c:
+        c.return_value.messages.create.return_value = _claude_tool_response(fake)
+        llm.generate_script(
+            title="T", author="A", description="D", genre="scifi",
+            chosen_hook="HOOK", dossier=_SAMPLE_DOSSIER,
+        )
+
+    user = _last_user_content(c)
+    assert "visual_motifs" in user
+    assert "abandoned submersible" in user
+
+
+def test_generate_scene_prompts_threads_dossier_into_user(settings_with_keys):
+    fake = {
+        "scenes": [
+            {"section": s, "prompt": f"p_{s}", "focus": "f"}
+            for s in llm.SECTIONS
+        ]
+    }
+    script = (
+        "## HOOK\nH\n\n## WORLD TEASE\nW\n\n## EMOTIONAL PULL\nE\n\n"
+        "## SOCIAL PROOF\nS\n\n## CTA\nC"
+    )
+    with patch.object(llm, "_anthropic_client") as c:
+        c.return_value.messages.create.return_value = _claude_tool_response(fake)
+        llm.generate_scene_prompts(
+            script=script, genre="scifi", dossier=_SAMPLE_DOSSIER,
+        )
+
+    user = _last_user_content(c)
+    assert "visual_motifs" in user
+    assert "glowing coral lattice" in user
+
+
+def test_creative_stages_omit_dossier_block_when_none(settings_with_keys):
+    """Legacy callers passing no dossier should not inject a block."""
+    fake = {
+        "alternatives": [
+            {"angle": "curiosity", "text": "a"},
+            {"angle": "fear", "text": "b"},
+            {"angle": "promise", "text": "c"},
+        ],
+        "chosen_index": 0,
+        "rationale": "",
+    }
+    with patch.object(llm, "_anthropic_client") as c:
+        c.return_value.messages.create.return_value = _claude_tool_response(fake)
+        llm.generate_hooks(title="T", author="A", description="D", genre="scifi")
+
+    user = _last_user_content(c)
+    assert "visual_motifs" not in user
+
+
 # --- dispatch: meta (Qwen / OpenAI-compatible path) ------------------------
 
 

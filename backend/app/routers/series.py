@@ -124,7 +124,11 @@ def create_series(body: CreateSeriesRequest, db: Session = Depends(get_db)) -> d
 
 @router.get("")
 def list_series(db: Session = Depends(get_db)) -> list[dict]:
-    all_series = db.query(Series).order_by(Series.created_at.desc()).all()
+    all_series = (
+        db.query(Series)
+        .order_by(Series.created_at.desc(), Series.id.desc())
+        .all()
+    )
     return [_series_to_dict(s, db) for s in all_series]
 
 

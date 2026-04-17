@@ -110,6 +110,12 @@ class Settings(BaseSettings):
     bookshop_affiliate_id: str = ""
     isbndb_api_key: str = ""
 
+    # ---- Quality gate (flag-gated, off by default) ----
+    # When on, each generated script is checked for banned vocabulary and
+    # dossier citation; on failure the script is regenerated once with
+    # feedback before scene prompts run.
+    quality_gate: bool = False
+
     # ---- Publishing (Phase 2) — shorts-only targets ----
     # TikTok, YT Shorts (via Data API), IG Reels + Threads (via Meta Graph).
     youtube_client_id: str = ""

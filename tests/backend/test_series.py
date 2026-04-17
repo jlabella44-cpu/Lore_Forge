@@ -197,7 +197,11 @@ class TestSeriesGenerate:
             json={"book_ids": book_ids},
         )
 
-        with patch("app.services.llm.dispatch") as mock_dispatch:
+        fake_dossier = {"setting": {"name": "", "era": "", "atmosphere": ""}}
+        with patch(
+            "app.services.book_research.build_dossier",
+            return_value=fake_dossier,
+        ), patch("app.services.llm.dispatch") as mock_dispatch:
             mock_dispatch.side_effect = [
                 self.FAKE_LIST_SCRIPT,
                 self.FAKE_LIST_SCENES,

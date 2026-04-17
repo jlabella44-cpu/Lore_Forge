@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, String
+from sqlalchemy import JSON, DateTime, Float, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.clock import utc_now
@@ -36,5 +36,11 @@ class Book(Base):
         String(32), default="discovered", server_default="discovered"
     )
     score: Mapped[float] = mapped_column(Float, default=0.0, server_default="0")
+
+    # Structured research blob — setting, protagonist sketch, visual_motifs,
+    # tonal_keywords, comparable_titles, reader_reactions, etc. Built once per
+    # book on first generate and reused by every downstream creative stage so
+    # hooks and scene prompts cite book-specific details instead of genre mush.
+    dossier: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     discovered_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

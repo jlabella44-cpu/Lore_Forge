@@ -308,3 +308,32 @@ def test_approve_is_exclusive(client, book_id):
 def test_generate_and_approve_404s(client):
     assert client.post("/books/99999/generate").status_code == 404
     assert client.post("/packages/99999/approve").status_code == 404
+
+
+# ---------- dossier cache --------------------------------------------------
+
+_STUB_DOSSIER = {
+    "setting": {"name": "", "era": "", "atmosphere": ""},
+    "visual_motifs": [],
+}
+
+
+def test_second_generate_reuses_cached_dossier(client, book_id):
+    """book_research.build_dossier is idempotent: the second /generate call
+    on the same book must not re-run generate_book_dossier."""
+    with (
+        patch(
+            "app.services.llm.generate_book_dossier",
+            return_value=_STUB_DOSSIER,
+        ) as dossier_llm,
+        patch("app.services.llm.generate_hooks", return_value=FAKE_HOOKS),
+        patch("app.services.llm.generate_script", return_value=FAKE_SCRIPT),
+        patch("app.services.llm.generate_scene_prompts", return_value=FAKE_SCENES),
+        patch("app.services.llm.generate_platform_meta", return_value=FAKE_META),
+    ):
+        client.post(f"/books/{book_id}/generate", json={})
+        assert dossier_llm.call_count == 1
+
+        # Second regen on the same book reads the persisted dossier.
+        client.post(f"/books/{book_id}/generate", json={"note": "darker"})
+        assert dossier_llm.call_count == 1
