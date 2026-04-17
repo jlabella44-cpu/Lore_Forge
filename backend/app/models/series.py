@@ -19,7 +19,7 @@ class Series(Base):
     __tablename__ = "series"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    slug: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    slug: Mapped[str] = mapped_column(String(128), index=True, unique=True)
     title: Mapped[str] = mapped_column(String(300))
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -33,7 +33,7 @@ class Series(Base):
     source_author: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
     total_parts: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    status: Mapped[str] = mapped_column(String(32), default="active")
+    status: Mapped[str] = mapped_column(String(32), default="active", server_default="active")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 

@@ -44,9 +44,8 @@ def upgrade() -> None:
         ),
         sa.Column("created_at", sa.DateTime(), nullable=False),
         sa.ForeignKeyConstraint(["source_book_id"], ["books.id"]),
-        sa.UniqueConstraint("slug", name="uq_series_slug"),
     )
-    op.create_index("ix_series_slug", "series", ["slug"])
+    op.create_index("ix_series_slug", "series", ["slug"], unique=True)
 
     op.create_table(
         "series_books",

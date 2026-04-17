@@ -83,6 +83,6 @@ class ContentPackage(Base):
     part_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # VideoFormat value. Drives prompt selection and Remotion composition.
-    format: Mapped[str] = mapped_column(String(32), default="short_hook")
+    format: Mapped[str] = mapped_column(String(32), default="short_hook", server_default="short_hook")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
