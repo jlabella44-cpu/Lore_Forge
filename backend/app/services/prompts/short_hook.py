@@ -24,9 +24,21 @@ candidates, each using a *different* emotional angle:
   fear        — a visceral stake or dread the book taps into
   promise     — an "if you loved X you'll love this" identification line
 
-Each hook must be ONE sentence, under 20 words, no preamble, no hashtags.
-Then pick the one you think will perform best for this book's genre and
-audience, and explain why in at most one sentence.
+Hard constraints (every hook):
+  - ONE sentence, 14 words or fewer, no preamble, no hashtags.
+  - Must cite at least ONE concrete element from the provided `dossier`:
+    a named setting, a visual_motif, a `comparable_titles` entry, or a
+    specific stake from `central_conflict`. Generic genre adjectives do
+    not count as citation.
+  - If `dossier` is missing or thin, use the `description` as the source
+    of specifics instead — still cite a concrete proper noun or object.
+
+Banned vocabulary (never emit — they signal generic AI slop):
+  unputdownable, page-turning, heart-pounding, captivating, a must-read,
+  breathtaking, stunning.
+
+After the three candidates, pick the one most likely to convert for this
+book's genre and audience, and justify in ≤1 sentence.
 
 Return strictly via the `record_hooks` tool.
 """
@@ -50,15 +62,33 @@ Tone by genre:
   scifi                         hype, energetic, fast pace
   romance, historical_fiction   warm, conversational, textured
 
-Constraints:
-  - ~150 words total across all five sections (reads in ~90 seconds).
-  - No stage directions in the script text itself.
-  - Also emit `narration`: the same content as prose (no headers), with
-    `[PAUSE]` markers inserted for dramatic beats. TTS voices this field
-    verbatim.
-  - Also emit `section_word_counts`: an integer word count per section for
-    the NARRATION text. Must have all five keys: hook, world_tease,
+Per-section word caps (NARRATION text):
+  hook ≤ 22, world_tease ≤ 35, emotional_pull ≤ 40,
+  social_proof ≤ 20, cta ≤ 15. Total ~140 words (reads in ~90 seconds).
+
+Dossier-citation contract (when a `dossier` block is provided):
+  - WORLD TEASE must name at least one element from `dossier.setting`
+    (the place-name, era, or atmosphere token).
+  - EMOTIONAL PULL must reference at least one entry from
+    `dossier.themes_tropes` AND weave in ≥1 phrase drawn from
+    `dossier.reader_reactions`.
+  - Somewhere in the body, include at least one concrete noun from
+    `dossier.visual_motifs` (verbatim or near-verbatim).
+  - At least TWO sentences use second-person direct address ("you'll…",
+    "imagine you…", "you already know…").
+
+Banned vocabulary (never emit — reject-on-sight):
+  unputdownable, page-turning, heart-pounding, captivating, a must-read,
+  breathtaking, stunning.
+
+Also emit:
+  - `narration`: prose version (no headers), with `[PAUSE]` markers
+    inserted for dramatic beats. TTS voices this field verbatim.
+  - `section_word_counts`: integer word count per section for the
+    NARRATION text. Must have all five keys: hook, world_tease,
     emotional_pull, social_proof, cta.
+
+No stage directions in the script text itself.
 
 Return strictly via the `record_script` tool.
 """
@@ -75,14 +105,33 @@ narration text (visible in the `[SECTION]` block below) and scale:
   - medium (25-50 words):   2 prompts
   - long   (>  50 words):   3 prompts
 
-When a section gets multiple prompts, each should show a *different*
-beat/angle of the same section (e.g. for world_tease: 1) establishing
-wide shot of the setting, 2) closer detail that hints at stakes). Avoid
-repeating the same composition.
+When a section gets multiple prompts, each shows a *different* beat/angle
+of the same section (avoid repeated compositions).
 
-Also attach a short `focus` label per scene describing what the section
-needs to communicate overall (e.g. "stakes of the world", "emotional
-climax tease", "social proof: bestseller list").
+**Every prompt MUST include** (as natural phrasing):
+  (a) a concrete SUBJECT or OBJECT — a thing, not an abstraction.
+  (b) a SETTING descriptor drawn from `dossier.setting` or
+      `dossier.visual_motifs` — name the place, the motif, the specific
+      material (e.g. "bioluminescent coral ruins", not "mysterious ruins").
+  (c) one CAMERA/LENS/COMPOSITION directive — examples: "low-angle wide",
+      "85mm portrait close-up", "macro detail shot", "overhead flat-lay".
+  (d) one LIGHTING directive — examples: "candle-lit chiaroscuro",
+      "chrome rim-light dusk", "warm gold-hour window".
+  (e) 1-2 `dossier.tonal_keywords` (or genre-appropriate equivalents).
+  (f) a COLOR PALETTE — 2-3 named colors ("deep teal + rust + bone").
+
+**Section beat contract** — each section has a required beat:
+  hook            → the shock/intrigue image that first stops scroll.
+  world_tease     → an establishing shot of `dossier.setting`.
+  emotional_pull  → a motif representing `dossier.central_conflict`
+                    (no characters, just the stakes made visual).
+  social_proof    → a book-object shot — cover on a shelf, a crowd
+                    holding it, a phone showing BookTok views.
+  cta             → warm, inviting "grab-it" image.
+
+**Forbidden tokens** (reject-on-sight): "fantasy vibes", "mysterious",
+"epic", "captivating", "stunning", "breathtaking". Replace abstractions
+with the concrete noun that earns them.
 
 Return exactly 5 scenes, in this section order:
   1. hook

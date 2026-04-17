@@ -450,17 +450,31 @@ def _generate_core_with_progress(
 def _pipeline_short_hook(
     book: Book, genre: str, note: str | None, set_progress,
 ) -> dict:
-    """Original 4-stage pipeline for single-book short-hook videos."""
-    set_progress("Stage 1/4: hook portfolio")
+    """5-stage pipeline for single-book short-hook videos.
+
+    Stage 0 builds (or reuses) a book dossier that's threaded into every
+    downstream creative stage so outputs cite concrete book-specific
+    details instead of genre-generic vocabulary.
+    """
+    from app.services import book_research
+
+    had_dossier = bool(book.dossier)
+    set_progress(
+        "Stage 0/5: book dossier" + (" (cached)" if had_dossier else "")
+    )
+    dossier = book_research.build_dossier(book)
+
+    set_progress("Stage 1/5: hook portfolio")
     hooks = llm.generate_hooks(
         title=book.title,
         author=book.author,
         description=book.description,
         genre=genre,
+        dossier=dossier,
     )
     chosen_hook_text = hooks["alternatives"][hooks["chosen_index"]]["text"]
 
-    set_progress("Stage 2/4: writing script")
+    set_progress("Stage 2/5: writing script")
     script_pkg = llm.generate_script(
         title=book.title,
         author=book.author,
@@ -468,14 +482,31 @@ def _pipeline_short_hook(
         genre=genre,
         chosen_hook=chosen_hook_text,
         note=note,
+        dossier=dossier,
     )
 
-    set_progress("Stage 3/4: scene prompts")
+    if settings.quality_gate:
+        from app.services import quality_gate
+
+        reasons = quality_gate.check_script(script_pkg["script"], dossier)
+        if reasons:
+            set_progress("Stage 2/5: regenerating (quality gate)")
+            script_pkg = llm.generate_script(
+                title=book.title,
+                author=book.author,
+                description=book.description,
+                genre=genre,
+                chosen_hook=chosen_hook_text,
+                note=quality_gate.feedback_note(reasons, note),
+                dossier=dossier,
+            )
+
+    set_progress("Stage 3/5: scene prompts")
     scene_pkg = llm.generate_scene_prompts(
-        script=script_pkg["script"], genre=genre
+        script=script_pkg["script"], genre=genre, dossier=dossier,
     )
 
-    set_progress("Stage 4/4: per-platform meta")
+    set_progress("Stage 4/5: per-platform meta")
     meta = llm.generate_platform_meta(
         script=script_pkg["script"], genre=genre
     )
@@ -500,15 +531,27 @@ def _pipeline_list(
     books: list[Book],
     bundle,
 ) -> dict:
-    """LIST format: intro → N book mini-pitches → CTA."""
+    """LIST format: intro → N book mini-pitches → CTA.
+
+    Builds a dossier per book up front so the script + scene_prompts stages
+    can cite each book's own visual_motifs and setting.
+    """
     if not books:
         raise ValueError("LIST format requires at least one book in books_for_list")
 
+    import json as _json
+
+    from app.services import book_research
+
+    set_progress("Stage 0/3: per-book dossiers")
+    dossiers: list[dict] = [book_research.build_dossier(b) for b in books]
+
     book_lines = []
-    for i, b in enumerate(books, 1):
+    for i, (b, dossier) in enumerate(zip(books, dossiers), 1):
         book_lines.append(
             f"Book {i}: {b.title} by {b.author}\n"
-            f"  Description: {b.description or '(none)'}"
+            f"  Description: {b.description or '(none)'}\n"
+            f"  Dossier: {_json.dumps(dossier)}"
         )
     user_text = (
         f"List title: Top {len(books)} {genre.replace('_', ' ').title()} Reads\n"
@@ -526,6 +569,30 @@ def _pipeline_list(
         bundle.script.tool_name,
         bundle.script.schema,
     )
+
+    if settings.quality_gate:
+        from app.services import quality_gate
+
+        pooled_motifs: list[str] = []
+        for d in dossiers:
+            pooled_motifs.extend(d.get("visual_motifs") or [])
+        reasons = quality_gate.check_script(
+            script_pkg["script"], {"visual_motifs": pooled_motifs}
+        )
+        if reasons:
+            set_progress("Stage 1/3: regenerating (quality gate)")
+            retry_text = (
+                user_text
+                + "\n\n"
+                + quality_gate.feedback_note(reasons, None)
+            )
+            script_pkg = llm.dispatch(
+                "script",
+                bundle.script.system,
+                retry_text,
+                bundle.script.tool_name,
+                bundle.script.schema,
+            )
 
     set_progress("Stage 2/3: scene prompts per book")
     scene_pkg = llm.dispatch(
