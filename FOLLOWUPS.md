@@ -3,51 +3,55 @@
 Short-lived punch list of known technical debt / later PRs. Delete items as
 they land; don't let this turn into a design doc.
 
+Session history (what just shipped) lives in `docs/SESSION_SUMMARY.md`.
+
+## Local action before Phase 1 resumes
+
+- **Stamp + upgrade the real backend DB.** Nothing in the merged PR touched
+  on-disk data on your machine. Run once:
+  ```bash
+  cd backend
+  alembic stamp 0004_cost_records
+  alembic upgrade head
+  ```
+  That declares the existing schema as `0004_cost_records` (what
+  `Base.metadata.create_all` organically built) and then applies
+  `0005_render_metadata` for the new `rendered_*` columns. Without this,
+  reads against `content_packages` will 500.
+
 ## Schema
 
-- **Two-DB divergence (fixed).** `backend/lore_forge.sqlite` (real data) and
-  `db/lore_forge.sqlite` (alembic-only scaffold) were never the same file
-  because `DATABASE_URL=sqlite:///./lore_forge.sqlite` was relative to the
-  cwd of whoever ran it. Short-term fix (runs locally, not in CI): `cd
-  backend && alembic stamp 0004_cost_records && alembic upgrade head`.
-  Root-cause fix landed in `app/db_url.py` — relative sqlite URLs are now
-  anchored to the repo root from both `app/config.py` (pydantic validator)
-  and `db/env.py`, so backend and alembic cannot drift onto two files again.
-
-- **Model ↔ migration `server_default` drift (fixed).** Originally caught by
-  `test_schema_drift.py` during tuning: 11 columns declared `server_default`
-  in migrations but not on the ORM models (`analytics.*`, `books.status/score`,
-  `book_sources.score`, `content_packages.revision_number/is_approved`,
-  `cost_records.estimated_cents`, `jobs.status`). The model side now declares
-  `server_default=...` to match, and the guardrail test runs with
-  `compare_server_default=True` so any future drift fails CI.
-
-- **0005 migration (series / series_books / format column).** Exists locally
-  but not in this repo — originally applied to the empty `db/` SQLite by
-  mistake. **Naming collision:** this branch now ships a `0005_render_metadata`
-  migration (render stats + narration hash on `content_packages`). Your local
-  series migration will need to be renumbered to `0006_series` and have its
-  `down_revision` updated from `0004_cost_records` to `0005_render_metadata`
-  before it can land.
+- **0005 migration collision (series / series_books / format column).**
+  Your local uncommitted series migration is also named `0005`. On the
+  repo, `0005_render_metadata` has taken that slot. Before landing your
+  series work: rename the file to `0006_series.py`, change `revision` to
+  `"0006_series"`, change `down_revision` to `"0005_render_metadata"`.
 
 ## Video pipeline — still to wire
 
-- **Render-metadata UI.** Backend now persists `rendered_at`,
-  `rendered_duration_seconds`, `rendered_size_bytes`, `rendered_narration_hash`
-  on `ContentPackage`, and `GET /books/{id}` returns a computed
-  `needs_rerender: bool`. The frontend doesn't consume any of this yet — the
-  book page should show a "Needs re-render — narration has changed since the
-  last render" banner when `needs_rerender` is true and `rendered_at` is not
-  null, plus a subtle "48s · 12MB · rendered 3h ago" line when fresh. Backend
-  deps are in place; this is a pure frontend task.
+- **Frontend `needs_rerender` banner.** Backend already persists
+  `rendered_at / rendered_duration_seconds / rendered_size_bytes` and
+  `GET /books/{id}` returns `needs_rerender: bool`. The book page should
+  show a "Needs re-render — narration has changed since the last render"
+  banner when `needs_rerender` is true and `rendered_at` is non-null, plus
+  a subtle "48s · 12MB · rendered 3h ago" line when fresh. Pure frontend
+  task — I couldn't run the UI in the agent env so it was left off.
 
 - **Publish stubs.** `services/tiktok.py`, `services/youtube.py`, and
-  `services/meta.py` all `raise NotImplementedError` on `upload(...)`. Each is
-  externally blocked — TikTok app review, YouTube installed-app OAuth, and a
-  public-URL story (tunnel or signed bucket) for Meta Reels + Threads. The
-  stubs include the implementation shape inline as comments.
+  `services/meta.py` all `raise NotImplementedError` on `upload(...)`. Each
+  is externally blocked — TikTok app review for the `video.publish` scope,
+  YouTube installed-app OAuth, and a public-URL story (tunnel or signed
+  bucket) for Meta Reels + Threads. The stubs include the implementation
+  shape inline as comments so pick-up is low-friction once the external
+  gate clears.
 
 - **Provider stubs.** `services/images.py` and `services/tts.py` only wire
   `wanx` + `openai` today; DALL·E 3, Imagen 3, Replicate FLUX, local SDXL,
   Kokoro, Dashscope CosyVoice, ElevenLabs all `raise NotImplementedError`.
   Low priority while the free/cheap defaults work.
+
+## Deployment
+
+- **Remote hosting plan** is parked on branch `claude/deployment-notes`
+  (docs/CHEAP_HOSTING.md) — one ~$5/mo Hetzner VPS covers the whole stack.
+  Pick up when ready to take this off local-only.
