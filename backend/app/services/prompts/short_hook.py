@@ -120,6 +120,12 @@ of the same section (avoid repeated compositions).
   (e) 1-2 `dossier.tonal_keywords` (or genre-appropriate equivalents).
   (f) a COLOR PALETTE — 2-3 named colors ("deep teal + rust + bone").
 
+When a "Visual preset" block appears at the end of the user message, treat
+its palette / lens / lighting / composition as the baseline for every
+scene. The dossier still wins on conflict — a book set in a coral reef
+overrides horror's charcoal palette — but absent a specific dossier
+directive, use the preset values verbatim.
+
 **Section beat contract** — each section has a required beat:
   hook            → the shock/intrigue image that first stops scroll.
   world_tease     → an establishing shot of `dossier.setting`.

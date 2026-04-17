@@ -153,6 +153,12 @@ of the same section (avoid repeated compositions).
   (e) 1-2 `dossier.tonal_keywords` (or genre-appropriate equivalents).
   (f) a COLOR PALETTE — 2-3 named colors ("deep teal + rust + bone").
 
+When a "Visual preset" block appears at the end of the user message, treat
+its palette / lens / lighting / composition as the baseline for every
+scene. The dossier still wins on conflict — a book set in a coral reef
+overrides horror's charcoal palette — but absent a specific dossier
+directive, use the preset values verbatim.
+
 **Section beat contract** — each section has a required beat:
   hook            → the shock/intrigue image that first stops scroll
                     (the most distinctive object/scene from the book).
@@ -657,11 +663,17 @@ def generate_scene_prompts(
     """Stage 3. Takes the section-headered script from Stage 2 and returns:
         {scenes: [{section, prompts: [str], focus}] × 5}
     """
+    from app.services import genre_presets
+
     sections = script_by_section(script)
     body = "\n\n".join(
         f"[{s.upper()}]\n{sections.get(s, '').strip()}" for s in SECTIONS
     )
-    user = f"Genre: {genre}\n\nScript sections:\n{body}{_dossier_block(dossier)}"
+    user = (
+        f"Genre: {genre}\n\nScript sections:\n{body}"
+        f"{_dossier_block(dossier)}"
+        f"{genre_presets.preset_block(genre)}"
+    )
     return dispatch(
         "script",
         _SCENE_PROMPTS_SYSTEM,
