@@ -38,7 +38,9 @@ class CostRecord(Base):
     # For non-token providers: 1 image, N seconds, N characters.
     units: Mapped[float | None] = mapped_column(Float, nullable=True)
 
-    estimated_cents: Mapped[float] = mapped_column(Float, default=0.0)
+    estimated_cents: Mapped[float] = mapped_column(
+        Float, default=0.0, server_default="0"
+    )
 
     package_id: Mapped[int | None] = mapped_column(
         ForeignKey("content_packages.id"), nullable=True, index=True

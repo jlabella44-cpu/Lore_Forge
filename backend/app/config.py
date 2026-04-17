@@ -1,4 +1,12 @@
+from pathlib import Path
+
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.db_url import resolve_sqlite_url
+from app.paths import resolve_repo_root_path
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 class Settings(BaseSettings):
@@ -11,10 +19,26 @@ class Settings(BaseSettings):
     # ---- Storage ----
     database_url: str = "sqlite:///./lore_forge.sqlite"
 
-    # ---- Renderer paths (all resolved relative to the backend/ cwd) ----
+    @field_validator("database_url")
+    @classmethod
+    def _anchor_sqlite_at_repo_root(cls, v: str) -> str:
+        # Normalize relative sqlite paths to repo-root absolute, so the
+        # backend (cwd=backend/) and alembic (cwd=db/) can't drift onto
+        # two different files. Non-sqlite URLs pass through unchanged.
+        return resolve_sqlite_url(v, REPO_ROOT)
+
+    # ---- Renderer paths ----
+    # Normalized against the repo root by `_anchor_path_at_repo_root` below,
+    # so uvicorn from backend/ and tests from tests/ see the same absolute
+    # locations. Same bug class as the DATABASE_URL anchoring above.
     renders_dir: str = "./renders"
-    music_dir: str = "./assets/music"
-    remotion_dir: str = "../remotion"
+    music_dir: str = "./backend/assets/music"
+    remotion_dir: str = "./remotion"
+
+    @field_validator("renders_dir", "music_dir", "remotion_dir")
+    @classmethod
+    def _anchor_path_at_repo_root(cls, v: str) -> str:
+        return resolve_repo_root_path(v, REPO_ROOT)
 
     # ---- APScheduler ----
     # Weekly discovery cron is opt-in so `uvicorn --reload` doesn't fire
@@ -28,6 +52,13 @@ class Settings(BaseSettings):
     # generate + render enqueue calls return 429 until the window clears.
     # Set to 0 or a negative value to disable.
     cost_daily_budget_cents: int = 500  # $5.00 default
+
+    # ---- Render retention ----
+    # Rendered videos for books that never got published pile up on disk.
+    # `POST /packages/prune-renders` deletes `{renders_dir}/{pkg_id}/` for
+    # unpublished packages whose last render is older than this many days.
+    # Set to 0 or negative to disable (the endpoint will 400).
+    render_retention_days: int = 30
 
     # ---- LLM keys ----
     anthropic_api_key: str = ""

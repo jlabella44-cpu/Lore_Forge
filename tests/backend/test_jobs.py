@@ -364,3 +364,92 @@ def test_generate_all_with_empty_queue_returns_zero(client):
     assert res.status_code == 202
     assert res.json()["enqueued"] == 0
     assert res.json()["job_ids"] == []
+
+
+# --- batch render ---------------------------------------------------------
+
+
+def _seed_books_for_batch_render(client, statuses: list[str]) -> list[int]:
+    """Seed len(statuses) books, each with an approved package, and set each
+    book's status to the corresponding entry. Returns the package ids."""
+    from app.db import SessionLocal
+    from app.models import Book, ContentPackage
+
+    nyt_hits = [
+        {
+            "title": f"Book {i}",
+            "author": f"A {i}",
+            "isbn": f"978000000000{i}",
+            "description": None,
+            "cover_url": None,
+            "source_rank": i + 1,
+        }
+        for i in range(len(statuses))
+    ]
+    with (
+        patch("app.sources.nyt.fetch_bestsellers", return_value=nyt_hits),
+        patch("app.services.llm.classify_genre", return_value=("fantasy", 0.9)),
+    ):
+        client.post("/discover/run")
+
+    package_ids: list[int] = []
+    with (
+        patch("app.services.llm.generate_hooks", return_value=FAKE_HOOKS),
+        patch("app.services.llm.generate_script", return_value=FAKE_SCRIPT),
+        patch("app.services.llm.generate_scene_prompts", return_value=FAKE_SCENES),
+        patch("app.services.llm.generate_platform_meta", return_value=FAKE_META),
+    ):
+        for hit in nyt_hits:
+            books = client.get("/books").json()
+            book = next(b for b in books if b["title"] == hit["title"])
+            gen = client.post(f"/books/{book['id']}/generate", json={}).json()
+            client.post(f"/packages/{gen['package_id']}/approve")
+            package_ids.append(gen["package_id"])
+
+    # Override the lifecycle state per-caller (approve leaves it scheduled).
+    db = SessionLocal()
+    try:
+        books = db.query(Book).order_by(Book.id.asc()).all()
+        for book, status in zip(books, statuses):
+            book.status = status
+        db.commit()
+    finally:
+        db.close()
+
+    return package_ids
+
+
+def test_render_all_picks_only_scheduled_books(client):
+    """render-all should enqueue for scheduled books only — rendered,
+    published, and review books are skipped."""
+    _seed_books_for_batch_render(client, ["scheduled", "rendered", "published"])
+
+    res = client.post("/packages/render-all")
+    assert res.status_code == 202
+    body = res.json()
+    assert body["enqueued"] == 1
+    assert body["eligible_count"] == 1
+    assert len(body["job_ids"]) == 1
+
+
+def test_render_all_with_empty_queue_returns_zero(client):
+    res = client.post("/packages/render-all")
+    assert res.status_code == 202
+    assert res.json()["enqueued"] == 0
+    assert res.json()["job_ids"] == []
+
+
+def test_render_all_respects_budget_guardrail(client, monkeypatch):
+    from app.config import settings
+    from app.services import cost
+
+    # Seed FIRST (with budget unrestricted), then trip the cap so the
+    # /packages/render-all call is the thing that sees the 429.
+    _seed_books_for_batch_render(client, ["scheduled"])
+
+    monkeypatch.setattr(settings, "cost_daily_budget_cents", 10)
+    cost.record_image(provider="wanx", model="wanx2.1-t2i-turbo", count=10)  # 20¢
+
+    res = client.post("/packages/render-all")
+    assert res.status_code == 429
+    assert "budget" in res.json()["detail"].lower()

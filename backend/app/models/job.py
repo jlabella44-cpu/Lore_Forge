@@ -25,7 +25,7 @@ class Job(Base):
     target_id: Mapped[int] = mapped_column(Integer, index=True)
 
     status: Mapped[str] = mapped_column(
-        String(32), default="queued", index=True
+        String(32), default="queued", server_default="queued", index=True
     )
     message: Mapped[str | None] = mapped_column(Text, nullable=True)
 

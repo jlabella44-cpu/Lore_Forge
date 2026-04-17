@@ -43,6 +43,9 @@ playwright-report/
 blob-report/
 playwright/.cache/
 
+# Rendered videos — write target, not source of truth.
+/renders/
+
 # Temp
 tmp/
 *.log

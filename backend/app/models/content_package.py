@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, false
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.types import JSON
 
@@ -21,13 +21,19 @@ class ContentPackage(Base):
         future A/B tests can re-draw from them.
       * `captions` is populated at render time from Whisper word-level
         transcription — null until the package has rendered at least once.
+      * `rendered_*` columns snapshot the last successful render so the UI
+        can show "48s · 12MB · rendered 3h ago" without statting the disk,
+        and `rendered_narration_hash` enables stale-render detection when
+        the narration text has since been edited.
     """
 
     __tablename__ = "content_packages"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     book_id: Mapped[int] = mapped_column(ForeignKey("books.id"), index=True)
-    revision_number: Mapped[int] = mapped_column(Integer, default=1)
+    revision_number: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1"
+    )
 
     # Script + narration.
     script: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -58,6 +64,16 @@ class ContentPackage(Base):
 
     # Regenerate note that produced this revision (null on first)
     regenerate_note: Mapped[str | None] = mapped_column(Text, nullable=True)
-    is_approved: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_approved: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false()
+    )
+
+    # Render snapshot — all null until the first successful render.
+    rendered_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    rendered_duration_seconds: Mapped[float | None] = mapped_column(Float, nullable=True)
+    rendered_size_bytes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 64-char hex SHA-256 of package.narration at render time. Compared against
+    # the current narration's hash to surface "needs re-render" in the UI.
+    rendered_narration_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)

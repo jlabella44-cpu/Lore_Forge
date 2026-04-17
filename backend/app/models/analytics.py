@@ -14,7 +14,13 @@ class Analytics(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     video_id: Mapped[int] = mapped_column(ForeignKey("videos.id"), index=True)
     date: Mapped[date] = mapped_column(Date)
-    views: Mapped[int] = mapped_column(Integer, default=0)
-    watch_time_seconds: Mapped[int] = mapped_column(Integer, default=0)
-    affiliate_clicks: Mapped[int] = mapped_column(Integer, default=0)
-    revenue_cents: Mapped[float] = mapped_column(Float, default=0.0)
+    views: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    watch_time_seconds: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
+    affiliate_clicks: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0"
+    )
+    revenue_cents: Mapped[float] = mapped_column(
+        Float, default=0.0, server_default="0"
+    )

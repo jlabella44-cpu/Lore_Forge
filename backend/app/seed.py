@@ -24,11 +24,11 @@ import shutil
 import subprocess
 from pathlib import Path
 
+from app import db as db_module
 from app.clock import utc_now
 from app.config import settings
-from app.db import SessionLocal, engine
-from app.models import Book, BookSource, ContentPackage
 from app.db import Base
+from app.models import Book, BookSource, ContentPackage
 
 
 SAMPLES: list[dict] = [
@@ -187,10 +187,13 @@ SAMPLE_PACKAGE = {
 
 
 def run(wipe: bool = False, with_video: bool = True) -> dict:
-    # Make sure tables exist so a clean clone can seed without running alembic.
-    Base.metadata.create_all(engine)
+    # Resolve the engine + session lazily so tests that swap db_module.engine
+    # via fixtures see the right database. (A module-level `from app.db import
+    # SessionLocal` binding would freeze to whatever was current at first
+    # import — broken across sequential test files.)
+    Base.metadata.create_all(db_module.engine)
 
-    db = SessionLocal()
+    db = db_module.SessionLocal()
     created_books = 0
     created_sources = 0
     created_packages = 0
@@ -255,10 +258,24 @@ def run(wipe: bool = False, with_video: bool = True) -> dict:
                     )
                     db.add(pkg)
                     db.flush()
+                    book.status = "scheduled"
                     if with_video:
                         rendered_video = _render_sample_video(pkg.id)
+                        if rendered_video:
+                            # Mirror what the real renderer does on success so
+                            # the demo lifecycle lands on `rendered` and the
+                            # UI shows render stats, not "never rendered".
+                            out_mp4 = (
+                                Path(settings.renders_dir).resolve()
+                                / str(pkg.id)
+                                / "out.mp4"
+                            )
+                            pkg.rendered_at = utc_now()
+                            pkg.rendered_duration_seconds = 5.0  # ffmpeg clip length
+                            pkg.rendered_size_bytes = out_mp4.stat().st_size
+                            pkg.rendered_narration_hash = _narration_hash(pkg.narration)
+                            book.status = "rendered"
                     created_packages += 1
-                    book.status = "scheduled"
 
         db.commit()
     finally:
@@ -270,6 +287,13 @@ def run(wipe: bool = False, with_video: bool = True) -> dict:
         "packages_created": created_packages,
         "sample_video_rendered": rendered_video,
     }
+
+
+def _narration_hash(text: str) -> str:
+    # Local import avoids dragging sqlalchemy import order around.
+    from app.services.renderer import narration_hash
+
+    return narration_hash(text)
 
 
 def _render_sample_video(package_id: int) -> bool:
