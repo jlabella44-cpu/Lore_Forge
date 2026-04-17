@@ -73,7 +73,7 @@ FORMAT_COMPOSITION: dict[str, str] = {
 }
 
 
-def render_package(package, book) -> dict:
+def render_package(package, book, on_progress=None) -> dict:
     """End-to-end render. Returns:
         {file_path, duration_seconds, size_bytes, tone, work_dir}
     """
@@ -98,6 +98,9 @@ def render_package(package, book) -> dict:
                 f"Expected {len(SECTIONS)} scene prompts, got {len(scenes_in)}"
             )
 
+    if on_progress is None:
+        on_progress = lambda _msg: None
+
     genre = (book.genre_override or book.genre or "other")
     tone = tone_for(genre)
 
@@ -106,10 +109,10 @@ def render_package(package, book) -> dict:
 
     # The outer log_call wraps the whole pipeline so the summary line shows
     # total wall-clock; inner service-layer log_calls show per-stage timing.
-    return _render_with_log(package, book, scenes_in, tone, work_dir, composition)
+    return _render_with_log(package, book, scenes_in, tone, work_dir, composition, on_progress)
 
 
-def _render_with_log(package, book, scenes_in, tone, work_dir, composition) -> dict:
+def _render_with_log(package, book, scenes_in, tone, work_dir, composition, on_progress) -> dict:
     with log_call(
         "renderer.render_package",
         package_id=package.id,
@@ -118,16 +121,20 @@ def _render_with_log(package, book, scenes_in, tone, work_dir, composition) -> d
         scene_count=len(scenes_in),
         composition=composition,
     ) as ctx:
-        return _render_inner(package, book, scenes_in, tone, work_dir, ctx, composition)
+        return _render_inner(package, book, scenes_in, tone, work_dir, ctx, composition, on_progress)
 
 
-def _render_inner(package, book, scenes_in, tone, work_dir, ctx, composition) -> dict:
+def _render_inner(package, book, scenes_in, tone, work_dir, ctx, composition, on_progress) -> dict:
+
+    total_scenes = len(scenes_in)
 
     # 1. Narration
+    on_progress(f"Step 1/4: generating narration audio")
     narration_path = work_dir / "narration.mp3"
     tts.synthesize(package.narration, tone, narration_path)
 
     # 2. Captions — only re-transcribe if we don't have them yet
+    on_progress(f"Step 2/4: transcribing captions")
     if package.captions:
         captions = package.captions
     else:
@@ -137,10 +144,11 @@ def _render_inner(package, book, scenes_in, tone, work_dir, ctx, composition) ->
         if session is not None:
             session.commit()
 
-    # 3. Image gen — one per scene, serial to keep Dashscope pressure low
+    # 3. Image gen — one per scene, serial
     scene_paths: list[Path] = []
     for i, scene in enumerate(scenes_in, start=1):
         label = scene.get("section") or scene.get("label") or f"scene_{i}"
+        on_progress(f"Step 3/4: generating image {i}/{total_scenes} ({label})")
         out = work_dir / f"scene_{i:02d}_{label}.png"
         images.generate(scene["prompt"], out, aspect="9:16")
         scene_paths.append(out)
@@ -167,10 +175,14 @@ def _render_inner(package, book, scenes_in, tone, work_dir, ctx, composition) ->
     music_path = pick_music_track(tone)
 
     # 6. Remotion props
+    # Remotion needs http:// URLs for assets. Serve them from the backend's
+    # /renders static mount.
+    base_url = f"http://127.0.0.1:8000/renders/{package.id}"
+
     scene_props = []
     for scene, path, duration in zip(scenes_in, scene_paths, per_scene_durations):
         sp: dict = {
-            "image": str(path.resolve()),
+            "image": f"{base_url}/{path.name}",
             "durationSeconds": duration,
         }
         if "section" in scene:
@@ -185,7 +197,7 @@ def _render_inner(package, book, scenes_in, tone, work_dir, ctx, composition) ->
         "author": book.author,
         "cardSeconds": card_seconds,
         "scenes": scene_props,
-        "audio": str(narration_path.resolve()),
+        "audio": f"{base_url}/narration.mp3",
         "captions": captions,
         "durationSeconds": total_seconds,
     }
@@ -196,6 +208,7 @@ def _render_inner(package, book, scenes_in, tone, work_dir, ctx, composition) ->
     props_path.write_text(json.dumps(props, indent=2))
 
     # 7. Render
+    on_progress(f"Step 4/4: assembling video ({composition})")
     out_mp4 = work_dir / "out.mp4"
     with log_call("renderer.remotion_cli", package_id=package.id, composition=composition):
         _run_remotion(props_path, out_mp4, composition)
@@ -377,6 +390,8 @@ def _list_scene_durations(
 
 
 def _run_remotion(props_path: Path, out_mp4: Path, composition: str = "LoreForge") -> None:
+    import platform
+
     remotion_dir = Path(settings.remotion_dir).resolve()
     cmd = [
         "npx",
@@ -387,11 +402,14 @@ def _run_remotion(props_path: Path, out_mp4: Path, composition: str = "LoreForge
         str(out_mp4.resolve()),
         f"--props={props_path.resolve()}",
     ]
+    # On Windows, npx is a .cmd file — subprocess needs shell=True to find it.
+    use_shell = platform.system() == "Windows"
     proc = subprocess.run(  # noqa: S603
         cmd,
         cwd=str(remotion_dir),
         capture_output=True,
         text=True,
+        shell=use_shell,
     )
     if proc.returncode != 0:
         tail = (proc.stderr or "")[-2000:]

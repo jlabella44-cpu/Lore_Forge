@@ -45,8 +45,12 @@ def transcribe_words(mp3_path: str | Path) -> list[dict]:
 
         # Record cost based on actual audio duration (last word's end time
         # is the narration length in seconds).
+        def _get(w, key):
+            """Handle both attribute-style and dict-style word objects."""
+            return w[key] if isinstance(w, dict) else getattr(w, key)
+
         try:
-            seconds = float(words[-1].end) if words else 0.0
+            seconds = float(_get(words[-1], "end")) if words else 0.0
             cost.record_whisper(
                 provider="openai", model="whisper-1", seconds=seconds
             )
@@ -54,6 +58,6 @@ def transcribe_words(mp3_path: str | Path) -> list[dict]:
             pass
 
         return [
-            {"word": w.word, "start": float(w.start), "end": float(w.end)}
+            {"word": _get(w, "word"), "start": float(_get(w, "start")), "end": float(_get(w, "end"))}
             for w in words
         ]

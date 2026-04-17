@@ -332,11 +332,10 @@ def _render_worker(job_id: int, *, package_id: int) -> None:
         book = db.get(Book, package.book_id)
         if book is None:
             raise RuntimeError(f"Book {package.book_id} not found")
-        set_progress("rendering: TTS + images + remotion")
         # Render-time services can read package_id directly — the package
         # already exists so cost records get attached at write time.
         with package_context(package_id):
-            result = renderer.render_package(package, book)
+            result = renderer.render_package(package, book, on_progress=set_progress)
         set_progress.result({"package_id": package_id, **result})
 
 

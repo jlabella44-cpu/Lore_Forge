@@ -3,8 +3,19 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import { ChevronLeft, Play, BookOpen, Package } from "lucide-react";
 
 import { apiFetch, pollJob, type Job, type Series } from "@/lib/api";
+
+const FORMAT_LABELS: Record<string, string> = {
+  short_hook: "Short Hook",
+  list: "List",
+  author_ranking: "Author Ranking",
+  series_episode: "Series Episode",
+  deep_dive: "Deep Dive",
+  recap: "Recap",
+  monthly_report: "Monthly Report",
+};
 
 export default function SeriesDetailPage() {
   const params = useParams<{ id: string }>();
@@ -51,140 +62,182 @@ export default function SeriesDetailPage() {
 
   if (!series) {
     return (
-      <main className="mx-auto max-w-4xl px-4 py-8">
+      <div className="mx-auto max-w-6xl p-8">
         {error ? (
-          <p className="text-red-300">{error}</p>
+          <div className="rounded-lg border border-red-500/20 bg-red-500/[0.06] px-4 py-3 text-sm text-red-300">
+            {error}
+          </div>
         ) : (
-          <p className="text-slate-400">Loading…</p>
+          <div className="flex items-center justify-center py-20 text-slate-500 text-sm">
+            Loading...
+          </div>
         )}
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="mx-auto max-w-4xl px-4 py-8">
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-1">
-        <Link
-          href="/series"
-          className="text-sm text-slate-400 hover:text-white transition"
-        >
-          &larr; Series
-        </Link>
-      </div>
+    <div className="mx-auto max-w-6xl p-8">
+      {/* Breadcrumb */}
+      <Link
+        href="/series"
+        className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors mb-6"
+      >
+        <ChevronLeft className="h-3 w-3" />
+        All series
+      </Link>
 
-      <div className="flex items-center justify-between mt-4 mb-6">
+      {/* Header */}
+      <div className="flex items-start justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold text-white">{series.title}</h1>
-          <p className="text-sm text-slate-400 mt-1">
-            {series.format} &middot; {series.series_type} &middot;{" "}
-            {series.status}
-          </p>
+          <h1 className="text-2xl font-semibold text-white tracking-tight">
+            {series.title}
+          </h1>
+          <div className="flex items-center gap-3 mt-2 text-sm text-slate-500">
+            <span className="flex items-center gap-1.5">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-amber-500/60" />
+              {FORMAT_LABELS[series.format] ?? series.format}
+            </span>
+            <span className="text-slate-700">/</span>
+            <span>{series.series_type.replace(/_/g, " ")}</span>
+            <span className="text-slate-700">/</span>
+            <span
+              className={
+                series.status === "active"
+                  ? "text-emerald-400"
+                  : "text-slate-400"
+              }
+            >
+              {series.status}
+            </span>
+          </div>
           {series.description && (
-            <p className="text-sm text-slate-500 mt-2">{series.description}</p>
+            <p className="mt-3 text-sm text-slate-500 max-w-xl leading-relaxed">
+              {series.description}
+            </p>
           )}
         </div>
 
         <button
           onClick={handleGenerate}
           disabled={generating || series.books.length === 0}
-          className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed transition"
+          className="flex items-center gap-2 rounded-lg bg-amber-500/90 px-4 py-2 text-sm font-medium text-black transition hover:bg-amber-400 disabled:opacity-30 disabled:cursor-not-allowed"
         >
-          {generating ? "Generating…" : "Generate"}
+          <Play className="h-3.5 w-3.5" />
+          {generating ? "Generating..." : "Generate"}
         </button>
       </div>
 
       {error && (
-        <p className="mb-4 rounded bg-red-900/40 px-3 py-2 text-red-200 text-sm">
+        <div className="mb-6 rounded-lg border border-red-500/20 bg-red-500/[0.06] px-4 py-3 text-sm text-red-300">
           {error}
-        </p>
+        </div>
       )}
 
       {progress && (
-        <p className="mb-4 rounded bg-indigo-900/30 px-3 py-2 text-indigo-200 text-sm">
+        <div className="mb-6 rounded-lg border border-amber-500/20 bg-amber-500/[0.06] px-4 py-3 text-sm text-amber-200 animate-pulse">
           {progress}
-        </p>
+        </div>
       )}
 
-      {/* Books */}
-      <section className="mb-8">
-        <h2 className="text-lg font-semibold text-white mb-3">
-          Books ({series.books.length})
-        </h2>
-        {series.books.length === 0 ? (
-          <p className="text-sm text-slate-500">
-            No books attached. Use{" "}
-            <code className="text-xs bg-slate-800 px-1 rounded">
-              POST /series/{seriesId}/books
-            </code>{" "}
-            to add books.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {series.books.map((b) => (
-              <div
-                key={b.book_id}
-                className="flex items-center gap-3 rounded border border-slate-700 bg-slate-800/40 px-3 py-2"
-              >
-                <span className="flex h-6 w-6 items-center justify-center rounded-full bg-slate-700 text-xs font-bold text-slate-300">
-                  {b.position}
-                </span>
-                <Link
-                  href={`/book/${b.book_id}`}
-                  className="text-sm text-slate-200 hover:text-white transition"
-                >
-                  Book #{b.book_id}
-                </Link>
-              </div>
-            ))}
+      {/* Two-column layout */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Books */}
+        <section>
+          <div className="flex items-center gap-2 mb-4">
+            <BookOpen className="h-4 w-4 text-slate-500" />
+            <h2 className="text-sm font-medium text-slate-300">
+              Books
+              <span className="ml-1.5 text-slate-600">
+                ({series.books.length})
+              </span>
+            </h2>
           </div>
-        )}
-      </section>
 
-      {/* Packages */}
-      <section>
-        <h2 className="text-lg font-semibold text-white mb-3">
-          Packages ({series.packages.length})
-        </h2>
-        {series.packages.length === 0 ? (
-          <p className="text-sm text-slate-500">
-            No packages yet. Hit Generate to create one.
-          </p>
-        ) : (
-          <div className="space-y-2">
-            {series.packages.map((pkg) => (
-              <div
-                key={pkg.id}
-                className="flex items-center justify-between rounded border border-slate-700 bg-slate-800/40 px-4 py-3"
-              >
-                <div className="flex items-center gap-3">
-                  {pkg.part_number && (
-                    <span className="rounded-full bg-indigo-600/30 px-2 py-0.5 text-xs font-medium text-indigo-200">
-                      Part {pkg.part_number}
-                      {series.total_parts
-                        ? ` of ${series.total_parts}`
-                        : ""}
-                    </span>
-                  )}
-                  <span className="text-sm text-slate-300">
-                    Package #{pkg.id}
-                  </span>
-                  <span className="text-xs text-slate-500">{pkg.format}</span>
-                </div>
-                <span
-                  className={`rounded-full px-2 py-0.5 text-xs font-medium ${
-                    pkg.is_approved
-                      ? "bg-green-500/20 text-green-200"
-                      : "bg-slate-600/30 text-slate-400"
-                  }`}
+          {series.books.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-white/[0.08] p-6 text-center">
+              <p className="text-sm text-slate-500 mb-1">No books attached</p>
+              <p className="text-xs text-slate-600">
+                <code className="rounded bg-white/[0.06] px-1.5 py-0.5">
+                  POST /series/{seriesId}/books
+                </code>
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {series.books.map((b) => (
+                <Link
+                  key={b.book_id}
+                  href={`/book/${b.book_id}`}
+                  className="flex items-center gap-3 rounded-lg border border-white/[0.06] bg-white/[0.02] px-4 py-3 transition hover:bg-white/[0.04] hover:border-white/[0.1]"
                 >
-                  {pkg.is_approved ? "Approved" : "Pending"}
-                </span>
-              </div>
-            ))}
+                  <span className="flex h-6 w-6 items-center justify-center rounded-md bg-white/[0.06] text-[11px] font-bold text-slate-400 tabular-nums">
+                    {b.position}
+                  </span>
+                  <span className="text-sm text-slate-300">
+                    Book #{b.book_id}
+                  </span>
+                </Link>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* Packages */}
+        <section>
+          <div className="flex items-center gap-2 mb-4">
+            <Package className="h-4 w-4 text-slate-500" />
+            <h2 className="text-sm font-medium text-slate-300">
+              Packages
+              <span className="ml-1.5 text-slate-600">
+                ({series.packages.length})
+              </span>
+            </h2>
           </div>
-        )}
-      </section>
-    </main>
+
+          {series.packages.length === 0 ? (
+            <div className="rounded-lg border border-dashed border-white/[0.08] p-6 text-center">
+              <p className="text-sm text-slate-500 mb-1">No packages yet</p>
+              <p className="text-xs text-slate-600">
+                Hit Generate to create one
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {series.packages.map((pkg) => (
+                <div
+                  key={pkg.id}
+                  className="flex items-center justify-between rounded-lg border border-white/[0.06] bg-white/[0.02] px-4 py-3"
+                >
+                  <div className="flex items-center gap-3">
+                    {pkg.part_number != null && (
+                      <span className="rounded-md bg-amber-500/10 px-2 py-[2px] text-[11px] font-medium text-amber-300 ring-1 ring-amber-500/20">
+                        Part {pkg.part_number}
+                        {series.total_parts
+                          ? ` of ${series.total_parts}`
+                          : ""}
+                      </span>
+                    )}
+                    <span className="text-sm text-slate-300">
+                      Package #{pkg.id}
+                    </span>
+                    <span className="text-xs text-slate-600">{pkg.format}</span>
+                  </div>
+                  <span
+                    className={`rounded-full px-2 py-[2px] text-[11px] font-medium ${
+                      pkg.is_approved
+                        ? "bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-500/20"
+                        : "bg-white/[0.04] text-slate-500 ring-1 ring-white/[0.06]"
+                    }`}
+                  >
+                    {pkg.is_approved ? "Approved" : "Pending"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+    </div>
   );
 }

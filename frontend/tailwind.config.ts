@@ -7,7 +7,14 @@ const config: Config = {
     "./lib/**/*.{ts,tsx}",
   ],
   theme: {
-    extend: {},
+    extend: {
+      fontFamily: {
+        sans: ["var(--font-body)", "system-ui", "sans-serif"],
+      },
+      colors: {
+        surface: "hsl(var(--surface))",
+      },
+    },
   },
   plugins: [],
 };
