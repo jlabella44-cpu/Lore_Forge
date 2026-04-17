@@ -49,6 +49,38 @@ export function dollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
 
+// ---------------------------------------------------------------------------
+// Series
+// ---------------------------------------------------------------------------
+
+export type SeriesBook = {
+  book_id: number;
+  position: number;
+};
+
+export type SeriesPackage = {
+  id: number;
+  part_number: number | null;
+  format: string;
+  is_approved: boolean;
+};
+
+export type Series = {
+  id: number;
+  slug: string;
+  title: string;
+  description: string | null;
+  format: string;
+  series_type: string;
+  source_book_id: number | null;
+  source_author: string | null;
+  total_parts: number | null;
+  status: string;
+  created_at: string | null;
+  books: SeriesBook[];
+  packages: SeriesPackage[];
+};
+
 export type Job = {
   id: number;
   kind: string;
