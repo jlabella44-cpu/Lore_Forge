@@ -76,4 +76,13 @@ class ContentPackage(Base):
     # the current narration's hash to surface "needs re-render" in the UI.
     rendered_narration_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
+    # Series grouping (multipart book, list, ranking, etc). Null = standalone.
+    series_id: Mapped[int | None] = mapped_column(
+        ForeignKey("series.id"), index=True, nullable=True
+    )
+    part_number: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # VideoFormat value. Drives prompt selection and Remotion composition.
+    format: Mapped[str] = mapped_column(String(32), default="short_hook")
+
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
