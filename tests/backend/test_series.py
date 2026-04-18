@@ -231,7 +231,7 @@ class TestSeriesGenerate:
         series_id = create.json()["id"]
         resp = client.post(f"/series/{series_id}/generate")
         assert resp.status_code == 400
-        assert "No books" in resp.json()["detail"]
+        assert "No items" in resp.json()["detail"]
 
     def test_generate_404_series(self, client):
         resp = client.post("/series/9999/generate")

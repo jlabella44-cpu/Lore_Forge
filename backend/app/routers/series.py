@@ -200,7 +200,7 @@ def generate_series(
 
     if not books:
         raise HTTPException(
-            status_code=400, detail="No books attached to this series"
+            status_code=400, detail="No items attached to this series"
         )
 
     # Use the first book as the anchor (for revision tracking / affiliate).
@@ -263,7 +263,7 @@ def _series_generate_worker(
         books = [db.get(ContentItem, sb.content_item_id) for sb in series_books]
         books = [b for b in books if b is not None]
         if not books:
-            raise RuntimeError("No books attached to series")
+            raise RuntimeError("No items attached to series")
 
         anchor = books[0]
         genre = anchor.genre_override or anchor.genre or "other"

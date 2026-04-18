@@ -92,7 +92,7 @@ def generate_package(
     """
     book = db.get(ContentItem, book_id)
     if book is None:
-        raise HTTPException(status_code=404, detail="Book not found")
+        raise HTTPException(status_code=404, detail="Item not found")
 
     note = (payload or {}).get("note")
 
@@ -190,7 +190,7 @@ def render_package(
         )
     book = db.get(ContentItem, package.content_item_id)
     if book is None:
-        raise HTTPException(status_code=404, detail="Book not found")
+        raise HTTPException(status_code=404, detail="Item not found")
 
     try:
         cost.assert_under_budget()
@@ -509,7 +509,7 @@ def _generate_worker(job_id: int, *, book_id: int, note: str | None) -> None:
     with jobs.job_session(job_id) as (db, set_progress):
         book = db.get(ContentItem, book_id)
         if book is None:
-            raise RuntimeError(f"Book {book_id} not found")
+            raise RuntimeError(f"Item {book_id} not found")
         genre = book.genre_override or book.genre or "other"
         previous_status = book.status
         book.status = "generating"
@@ -540,7 +540,7 @@ def _render_worker(job_id: int, *, package_id: int) -> None:
             raise RuntimeError(f"Package {package_id} not found")
         book = db.get(ContentItem, package.content_item_id)
         if book is None:
-            raise RuntimeError(f"Book {package.content_item_id} not found")
+            raise RuntimeError(f"Item {package.content_item_id} not found")
         # Render-time services can read package_id directly — the package
         # already exists so cost records get attached at write time.
         with package_context(package_id):
