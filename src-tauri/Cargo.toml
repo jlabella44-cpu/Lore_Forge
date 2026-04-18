@@ -1,0 +1,33 @@
+[package]
+name = "lore-forge"
+version = "0.1.0"
+description = "Lore Forge desktop"
+edition = "2021"
+rust-version = "1.70"
+
+# Emit the binary that Tauri's bundler wraps into .app / .msi.
+[[bin]]
+name = "lore-forge"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2.0", features = [] }
+
+[dependencies]
+tauri = { version = "2.0", features = [] }
+# Lets the shell plugin spawn the PyInstaller sidecar and stream its
+# stdout (we parse SIDECAR_READY from the first line).
+tauri-plugin-shell = "2.0"
+# Injects `window.__LORE_FORGE_API__` into the webview as soon as the
+# sidecar port is known — we use the `webview-window` eval API for that.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["sync", "time"] }
+log = "0.4"
+
+[features]
+# Production builds pull in the custom protocol that serves the static
+# frontend from the app bundle. The default dev build uses `devUrl` to
+# hit the Next.js dev server at http://localhost:3000.
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

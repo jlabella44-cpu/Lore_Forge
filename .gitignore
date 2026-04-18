@@ -49,3 +49,12 @@ playwright/.cache/
 # Temp
 tmp/
 *.log
+
+# PyInstaller (backend/sidecar.spec output)
+/build/
+*.manifest
+
+# Tauri / Rust (src-tauri/ build output + staged sidecars)
+/src-tauri/target/
+/src-tauri/gen/
+/src-tauri/binaries/sidecar*

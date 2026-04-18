@@ -1,0 +1,12 @@
+# Build-time only deps for packaging the sidecar binary. Not installed
+# into the runtime — PyInstaller bakes everything into the executable.
+#
+# Install on the packaging machine:
+#   pip install -r requirements.txt -r requirements-build.txt
+#
+# Then:
+#   pyinstaller backend/sidecar.spec
+#
+# Output lands in `dist/sidecar/` (one-folder mode) or `dist/sidecar`
+# (onefile mode, depending on the spec). See docs/desktop-build.md.
+pyinstaller==6.11.0
