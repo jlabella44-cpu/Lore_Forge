@@ -60,9 +60,13 @@ class ContentPackage(Base):
     titles: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     hashtags: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
-    # Affiliate
-    affiliate_amazon: Mapped[str | None] = mapped_column(String(1000), nullable=True)
-    affiliate_bookshop: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    # Per-profile CTA links. Shape declared by the active profile's
+    # `cta_fields` schema — Books: `{amazon_url, bookshop_url}`;
+    # Films: `{trailer_url, streaming_url}`; etc. Replaced the
+    # book-specific `affiliate_amazon`/`affiliate_bookshop` columns in
+    # migration 0011. The @property accessors below preserve the old
+    # attribute names for Books-era service code.
+    cta_links: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     # Regenerate note that produced this revision (null on first)
     regenerate_note: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -88,3 +92,39 @@ class ContentPackage(Base):
     format: Mapped[str] = mapped_column(String(32), default="short_hook", server_default="short_hook")
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now)
+
+    # ------------------------------------------------------------------
+    # Books-era CTA accessors.
+    #
+    # Many callers still read/write package.affiliate_amazon and
+    # package.affiliate_bookshop from the book era. Each is a read/write
+    # view over `cta_links` so service code can migrate to the JSON
+    # shape at its own pace.
+    # ------------------------------------------------------------------
+
+    def _cta_get(self, key: str) -> str | None:
+        return (self.cta_links or {}).get(key)
+
+    def _cta_set(self, key: str, value: str | None) -> None:
+        cur = dict(self.cta_links or {})
+        if value is None:
+            cur.pop(key, None)
+        else:
+            cur[key] = value
+        self.cta_links = cur or None
+
+    @property
+    def affiliate_amazon(self) -> str | None:
+        return self._cta_get("amazon_url")
+
+    @affiliate_amazon.setter
+    def affiliate_amazon(self, value: str | None) -> None:
+        self._cta_set("amazon_url", value)
+
+    @property
+    def affiliate_bookshop(self) -> str | None:
+        return self._cta_get("bookshop_url")
+
+    @affiliate_bookshop.setter
+    def affiliate_bookshop(self, value: str | None) -> None:
+        self._cta_set("bookshop_url", value)
