@@ -1,10 +1,28 @@
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+// Base URL resolution priority:
+//   1. `window.__LORE_FORGE_API__` — injected by the Tauri shell at app
+//      boot with the sidecar's loopback port (unknown until runtime).
+//   2. `NEXT_PUBLIC_API_URL` — dev fallback baked in at build time.
+//   3. `http://localhost:8000` — sensible default when neither is set.
+// `window` is undefined during the static export build, so the guard is
+// required to keep `npm run build` green.
+declare global {
+  interface Window {
+    __LORE_FORGE_API__?: string;
+  }
+}
+
+function baseUrl(): string {
+  if (typeof window !== "undefined" && window.__LORE_FORGE_API__) {
+    return window.__LORE_FORGE_API__;
+  }
+  return process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
+}
 
 export async function apiFetch<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const res = await fetch(`${baseUrl()}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -19,7 +37,7 @@ export async function apiFetch<T>(
 
 /** URL to an asset inside the backend's /renders static mount. */
 export function rendersUrl(packageId: number, filename = "out.mp4"): string {
-  return `${BASE_URL}/renders/${packageId}/${filename}`;
+  return `${baseUrl()}/renders/${packageId}/${filename}`;
 }
 
 export type CostSummary = {

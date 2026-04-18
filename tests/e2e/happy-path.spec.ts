@@ -165,14 +165,14 @@ test("dashboard lists seeded books and links to detail", async ({ page }) => {
   await expect(row).toBeVisible();
   await expect(row.getByText("scheduled")).toBeVisible();
 
-  // Opening via the title link hits /book/1
+  // Opening via the title link hits /book?id=1
   await page.getByRole("link", { name: /Addie LaRue/i }).first().click();
-  await expect(page).toHaveURL(/\/book\/1$/);
+  await expect(page).toHaveURL(/\/book\/?\?id=1$/);
 });
 
 test("book review page renders hook portfolio + section-labeled prompts", async ({ page }) => {
   await wireBackend(page);
-  await page.goto("/book/1");
+  await page.goto("/book?id=1");
 
   // Header
   await expect(page.getByRole("heading", { name: "The Invisible Life of Addie LaRue" })).toBeVisible();
@@ -226,7 +226,7 @@ test("render flow polls the job and shows the result", async ({ page }) => {
     route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   });
 
-  await page.goto("/book/1");
+  await page.goto("/book?id=1");
   await page.getByRole("button", { name: /Render Video/i }).click();
 
   // While the job is "running" the button flips to "Rendering… rendering: TTS…"
@@ -258,7 +258,7 @@ test("publish button surfaces the 501 as an inline error", async ({ page }) => {
     error: null, created_at: null, started_at: null, finished_at: null,
   }));
 
-  await page.goto("/book/1");
+  await page.goto("/book?id=1");
   await page.getByRole("button", { name: /Render Video/i }).click();
   await expect(page.getByText(/Rendered/)).toBeVisible({ timeout: 10_000 });
 

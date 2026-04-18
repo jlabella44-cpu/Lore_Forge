@@ -69,7 +69,7 @@ export default function SeriesListPage() {
           {seriesList.map((s) => {
             const variant = STATUS_VARIANT[s.status] ?? "plain";
             return (
-              <Link key={s.id} href={`/series/${s.id}`} className="block">
+              <Link key={s.id} href={`/series/view?id=${s.id}`} className="block">
                 <Card className="cursor-pointer transition-colors hover:border-hair-strong hover:bg-white/[0.04]">
                   <div className="grid grid-cols-[1fr_auto] items-center gap-5">
                     <div>

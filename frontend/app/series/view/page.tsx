@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Play } from "lucide-react";
 
 import { apiFetch, pollJob, type Job, type Series } from "@/lib/api";
@@ -26,9 +26,20 @@ const STATUS_VARIANT: Record<string, ChipVariant> = {
   paused: "plain",
 };
 
+// Static export can't pre-render `/series/[id]`, so detail is reached
+// at `/series/view?id=42`. `useSearchParams` triggers Next's CSR bailout,
+// which requires a Suspense boundary at the module's default export.
 export default function SeriesDetailPage() {
-  const params = useParams<{ id: string }>();
-  const seriesId = Number(params.id);
+  return (
+    <Suspense fallback={null}>
+      <SeriesDetailContent />
+    </Suspense>
+  );
+}
+
+function SeriesDetailContent() {
+  const searchParams = useSearchParams();
+  const seriesId = Number(searchParams.get("id") ?? 0);
 
   const [series, setSeries] = useState<Series | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -45,6 +56,7 @@ export default function SeriesDetailPage() {
   };
 
   useEffect(() => {
+    if (!seriesId) return;
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [seriesId]);
@@ -147,7 +159,7 @@ export default function SeriesDetailPage() {
               {series.books.map((b, i) => (
                 <a
                   key={b.book_id}
-                  href={`/book/${b.book_id}`}
+                  href={`/book?id=${b.book_id}`}
                   className="flex items-center gap-3.5 rounded-md border border-hair bg-white/[0.02] p-3 transition-colors hover:border-hair-strong hover:bg-white/[0.04]"
                 >
                   <span className="grid h-7 w-7 place-items-center rounded-[5px] bg-white/[0.04] font-mono text-[11px] text-fg-2">

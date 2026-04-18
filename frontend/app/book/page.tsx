@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Check, Copy, Play } from "lucide-react";
 
 import { apiFetch, dollars, pollJob, rendersUrl, type CostSummary } from "@/lib/api";
@@ -99,11 +100,21 @@ type TabKey = "script" | "hooks" | "scenes" | "narration" | "meta";
 // Page
 // ---------------------------------------------------------------------------
 
-export default function BookReviewPage({
-  params,
-}: {
-  params: { id: string };
-}) {
+// Static export can't pre-render `/book/[id]`, so the detail page is
+// reached as `/book?id=123` and the ID is read from the query string.
+// `useSearchParams()` triggers Next's CSR bailout during prerender, which
+// requires a Suspense boundary at the module's default export.
+export default function BookReviewPage() {
+  return (
+    <Suspense fallback={null}>
+      <BookReviewContent />
+    </Suspense>
+  );
+}
+
+function BookReviewContent() {
+  const searchParams = useSearchParams();
+  const bookId = searchParams.get("id") ?? "";
   const [book, setBook] = useState<BookDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<number | null>(null);
@@ -123,7 +134,7 @@ export default function BookReviewPage({
   const refresh = async () => {
     setError(null);
     try {
-      const data = await apiFetch<BookDetail>(`/books/${params.id}`);
+      const data = await apiFetch<BookDetail>(`/books/${bookId}`);
       setBook(data);
       setActiveId((prev) => prev ?? data.packages[0]?.id ?? null);
     } catch (e) {
@@ -133,9 +144,10 @@ export default function BookReviewPage({
   };
 
   useEffect(() => {
+    if (!bookId) return;
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [params.id]);
+  }, [bookId]);
 
   // Preserve tab in URL hash.
   useEffect(() => {
@@ -157,7 +169,7 @@ export default function BookReviewPage({
     setError(null);
     try {
       const queued = await apiFetch<{ job_id: number; status: string }>(
-        `/books/${params.id}/generate?async=true`,
+        `/books/${bookId}/generate?async=true`,
         { method: "POST", body: JSON.stringify({ note: note ?? null }) },
       );
       const job = await pollJob(queued.job_id, (j) =>

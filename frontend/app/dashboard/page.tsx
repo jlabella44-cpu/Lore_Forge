@@ -404,7 +404,7 @@ function BookTable({
               </td>
               <td className="px-4 py-3">
                 <Link
-                  href={`/book/${b.id}`}
+                  href={`/book?id=${b.id}`}
                   className="text-fg-0 transition-colors hover:text-accent"
                 >
                   {b.title}
@@ -426,7 +426,7 @@ function BookTable({
                     {b.status === "skipped" ? "Unskip" : "Skip"}
                   </Button>
                   <Link
-                    href={`/book/${b.id}`}
+                    href={`/book?id=${b.id}`}
                     className="rounded-md bg-white/[0.03] px-2.5 py-[5px] text-xs font-medium text-fg-1 transition-colors hover:border-hair-strong hover:bg-white/[0.07]"
                   >
                     Open
@@ -456,7 +456,7 @@ function BookGrid({ books }: { books: Book[] }) {
       style={{ gridTemplateColumns: "repeat(auto-fill, minmax(168px, 1fr))" }}
     >
       {books.map((b) => (
-        <Link key={b.id} href={`/book/${b.id}`} className="group block">
+        <Link key={b.id} href={`/book?id=${b.id}`} className="group block">
           <div className="mb-2.5 overflow-hidden rounded-md border border-hair transition-transform duration-200 group-hover:-translate-y-[3px] group-hover:shadow-[0_6px_30px_rgba(0,0,0,0.4)]">
             <BookCover coverUrl={b.cover_url} title={b.title} author={b.author} />
           </div>
