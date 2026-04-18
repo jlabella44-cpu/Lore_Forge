@@ -82,3 +82,16 @@ def _clean_isbn(raw: str | None) -> str | None:
     if len(digits) in (10, 13):
         return digits
     return None
+
+
+from app.sources.base import DiscoverySource, register  # noqa: E402
+
+
+class GoodreadsPlugin(DiscoverySource):
+    slug = "goodreads"
+
+    def fetch(self, config=None) -> list[dict]:
+        return fetch_trending()
+
+
+register(GoodreadsPlugin())

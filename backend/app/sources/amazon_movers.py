@@ -72,3 +72,16 @@ def fetch_movers(limit: int = 20) -> list[dict]:
             }
         )
     return results
+
+
+from app.sources.base import DiscoverySource, register  # noqa: E402
+
+
+class AmazonMoversPlugin(DiscoverySource):
+    slug = "amazon_movers"
+
+    def fetch(self, config=None) -> list[dict]:
+        return fetch_movers()
+
+
+register(AmazonMoversPlugin())

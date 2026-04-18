@@ -163,7 +163,7 @@ def test_discover_reddit_only_no_isbn_dedupes_by_title_author(client, monkeypatc
     (title, author) so repeated Reddit runs stay idempotent."""
     from app.config import settings
 
-    monkeypatch.setattr(settings, "sources_enabled", "reddit")
+    monkeypatch.setattr(settings, "sources_enabled", "reddit_trends")
 
     reddit_hits = [
         {

@@ -87,3 +87,21 @@ def _extract_book(title: str) -> tuple[str, str] | None:
             if len(bt) >= 2 and len(au) >= 2 and " " in au:
                 return bt, au
     return None
+
+
+from app.sources.base import DiscoverySource, register  # noqa: E402
+
+
+class RedditTrendsPlugin(DiscoverySource):
+    # Slug matches both the migration-0009 seed and the module name.
+    # Pre-B5 FETCHERS used "reddit" — callers with SOURCES_ENABLED=reddit
+    # will hit the "unknown source" branch after this change and need
+    # to update their env to SOURCES_ENABLED=reddit_trends. Single-user
+    # dev setup; no broad deploys to migrate.
+    slug = "reddit_trends"
+
+    def fetch(self, config=None) -> list[dict]:
+        return fetch_reddit_trends()
+
+
+register(RedditTrendsPlugin())

@@ -24,3 +24,16 @@ from __future__ import annotations
 
 def fetch_booktok() -> list[dict]:
     return []
+
+
+from app.sources.base import DiscoverySource, register  # noqa: E402
+
+
+class BookTokPlugin(DiscoverySource):
+    slug = "booktok"
+
+    def fetch(self, config=None) -> list[dict]:
+        return fetch_booktok()
+
+
+register(BookTokPlugin())

@@ -48,3 +48,19 @@ def _normalize(book: dict) -> dict:
 def _smart_title(s: str) -> str:
     """NYT returns TITLES IN ALL CAPS. Title-case those; leave mixed-case alone."""
     return s.title() if s and s.isupper() else s
+
+
+# Plugin wrapper — makes this source discoverable via
+# `app.sources.base.REGISTRY` so discover.run() doesn't need to know
+# about nyt specifically.
+from app.sources.base import DiscoverySource, register  # noqa: E402
+
+
+class NytPlugin(DiscoverySource):
+    slug = "nyt"
+
+    def fetch(self, config=None) -> list[dict]:
+        return fetch_bestsellers()
+
+
+register(NytPlugin())

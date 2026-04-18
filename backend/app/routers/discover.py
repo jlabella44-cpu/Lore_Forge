@@ -23,8 +23,6 @@ the pre-B2 flow stays functional.
 """
 from __future__ import annotations
 
-from typing import Callable
-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -36,26 +34,19 @@ from app.models import ContentItem, ContentItemSource
 from app.scoring import SOURCE_WEIGHTS, recency_multiplier_from, score_book
 from app.services import llm
 from app.services import profiles as profile_service
-from app.sources import amazon_movers, booktok, goodreads, nyt, reddit_trends
+from app.sources import base as sources
+
+# Fire every bundled plugin's `register(...)` side-effect import so the
+# registry is populated before the first request lands.
+sources.load_default_plugins()
 
 router = APIRouter()
 
-# Fetcher registry. Keys match what lands in ContentItemSource.source.
-# Lambdas bind late so unittest.mock.patch("app.sources.nyt.fetch_bestsellers")
-# is picked up at call time.
-FETCHERS: dict[str, Callable[[], list[dict]]] = {
-    "nyt": lambda: nyt.fetch_bestsellers(),
-    "goodreads": lambda: goodreads.fetch_trending(),
-    "amazon_movers": lambda: amazon_movers.fetch_movers(),
-    "reddit": lambda: reddit_trends.fetch_reddit_trends(),
-    "booktok": lambda: booktok.fetch_booktok(),
-}
 
-
-def _active_profile_id(db: Session) -> int:
+def _active_profile(db: Session):
     active = profile_service.get_active(db)
     if active is not None:
-        return active.id
+        return active
     # Fall back to the `books` profile seeded in 0009 so single-user
     # dev setups work even if someone toggled everything off.
     books = profile_service.get_by_slug(db, "books")
@@ -64,7 +55,7 @@ def _active_profile_id(db: Session) -> int:
             status_code=500,
             detail="No active profile and no 'books' fallback profile seeded",
         )
-    return books.id
+    return books
 
 
 @router.post("/run")
@@ -76,7 +67,18 @@ def run_discovery(db: Session = Depends(get_db)) -> dict:
             detail="No sources enabled. Set SOURCES_ENABLED in .env.",
         )
 
-    profile_id = _active_profile_id(db)
+    profile = _active_profile(db)
+    profile_id = profile.id
+
+    # Pull per-plugin config out of the active profile's sources_config.
+    # Keyed by plugin slug; missing slugs get an empty config dict (the
+    # legacy book plugins ignore it anyway). A Films profile would put
+    # its RSS feed URLs in here.
+    configured: dict[str, dict] = {
+        entry.get("plugin_slug"): entry.get("config") or {}
+        for entry in (profile.sources_config or [])
+        if isinstance(entry, dict) and entry.get("plugin_slug")
+    }
 
     per_source: dict[str, dict] = {}
     total_fetched = 0
@@ -85,15 +87,16 @@ def run_discovery(db: Session = Depends(get_db)) -> dict:
     skipped = 0
 
     for source in enabled:
-        fetcher = FETCHERS.get(source)
-        if fetcher is None:
+        plugin = sources.get(source)
+        if plugin is None:
             per_source[source] = {"error": f"unknown source {source!r}"}
             continue
 
         try:
-            hits = fetcher()
+            hits = plugin.fetch(configured.get(source, {}))
         except RuntimeError as exc:
-            # Missing API key / vendor down — don't fail the whole run.
+            # Missing API key / vendor down / plugin config missing
+            # — don't fail the whole run.
             per_source[source] = {"error": str(exc)}
             continue
 
