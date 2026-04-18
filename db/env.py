@@ -30,18 +30,22 @@ if str(BACKEND_DIR) not in sys.path:
 from app.db import Base  # noqa: E402
 from app import models  # noqa: E402, F401  (registers mappers on Base.metadata)
 from app.db_url import resolve_sqlite_url  # noqa: E402
+from app.paths import app_base_dir  # noqa: E402
 
 config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Same normalization as app/config.py's validator — relative sqlite paths
-# resolve against the repo root rather than alembic's cwd. Without this,
+# resolve against a stable anchor (repo root in dev, OS user-data dir in a
+# packaged desktop build) rather than alembic's cwd. Without this,
 # `alembic upgrade` from db/ would write to db/lore_forge.sqlite while the
 # backend from backend/ writes to backend/lore_forge.sqlite.
 _repo_root = Path(__file__).resolve().parents[1]
 db_url = resolve_sqlite_url(
-    os.getenv("DATABASE_URL", "sqlite:///./lore_forge.sqlite"), _repo_root
+    os.getenv("DATABASE_URL", "sqlite:///./lore_forge.sqlite"),
+    _repo_root,
+    app_base_dir(),
 )
 config.set_main_option("sqlalchemy.url", db_url)
 

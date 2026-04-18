@@ -4,9 +4,13 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.db_url import resolve_sqlite_url
-from app.paths import resolve_repo_root_path
+from app.paths import app_base_dir, resolve_default_path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
+
+# Resolved once at import time. `None` in dev (anchor at repo root); a real
+# directory when running as a packaged desktop sidecar. See app/paths.py.
+APP_BASE_DIR = app_base_dir()
 
 
 class Settings(BaseSettings):
@@ -21,24 +25,24 @@ class Settings(BaseSettings):
 
     @field_validator("database_url")
     @classmethod
-    def _anchor_sqlite_at_repo_root(cls, v: str) -> str:
-        # Normalize relative sqlite paths to repo-root absolute, so the
-        # backend (cwd=backend/) and alembic (cwd=db/) can't drift onto
-        # two different files. Non-sqlite URLs pass through unchanged.
-        return resolve_sqlite_url(v, REPO_ROOT)
+    def _anchor_sqlite(cls, v: str) -> str:
+        # Normalize relative sqlite paths to an absolute location so every
+        # entry point (uvicorn, alembic, tests, packaged sidecar) agrees on
+        # the same file. Desktop mode anchors at the OS user-data dir; dev
+        # anchors at the repo root. Non-sqlite URLs pass through unchanged.
+        return resolve_sqlite_url(v, REPO_ROOT, APP_BASE_DIR)
 
     # ---- Renderer paths ----
-    # Normalized against the repo root by `_anchor_path_at_repo_root` below,
-    # so uvicorn from backend/ and tests from tests/ see the same absolute
-    # locations. Same bug class as the DATABASE_URL anchoring above.
+    # Anchored by `_anchor_path` below: repo root in dev, OS user-data dir
+    # when running as a desktop sidecar. Absolute overrides pass through.
     renders_dir: str = "./renders"
     music_dir: str = "./backend/assets/music"
     remotion_dir: str = "./remotion"
 
     @field_validator("renders_dir", "music_dir", "remotion_dir")
     @classmethod
-    def _anchor_path_at_repo_root(cls, v: str) -> str:
-        return resolve_repo_root_path(v, REPO_ROOT)
+    def _anchor_path(cls, v: str) -> str:
+        return resolve_default_path(v, APP_BASE_DIR, REPO_ROOT)
 
     # ---- APScheduler ----
     # Weekly discovery cron is opt-in so `uvicorn --reload` doesn't fire

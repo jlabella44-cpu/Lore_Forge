@@ -5,8 +5,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.config import settings
+from app.config import APP_BASE_DIR, settings
 from app.db import init_db
+from app.migrations import run_migrations_to_head
 from app.observability import configure_logging, get_logger
 from app.routers import analytics, books, discover, generate, jobs, publish, series
 from app.scheduler import register_jobs, scheduler
@@ -15,7 +16,15 @@ from app.scheduler import register_jobs, scheduler
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     configure_logging()
-    get_logger("startup").info("Lore Forge API booting")
+    log = get_logger("startup")
+    log.info("Lore Forge API booting")
+    # In the packaged desktop build there's no terminal to run alembic
+    # from, so the app must bring its own DB up to head on every boot.
+    # In dev (APP_BASE_DIR is None), developers run alembic manually so
+    # they stay in control of when migrations fire.
+    if APP_BASE_DIR is not None:
+        log.info("Running alembic upgrade head (desktop mode)")
+        run_migrations_to_head()
     init_db()
     register_jobs()
     scheduler.start()
@@ -23,7 +32,7 @@ async def lifespan(_: FastAPI):
         yield
     finally:
         scheduler.shutdown(wait=False)
-        get_logger("startup").info("Lore Forge API stopped")
+        log.info("Lore Forge API stopped")
 
 
 app = FastAPI(title="Lore Forge API", version="0.1.0", lifespan=lifespan)
