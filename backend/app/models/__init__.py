@@ -6,6 +6,7 @@ from app.models.cost_record import CostRecord
 from app.models.format import VideoFormat
 from app.models.image_asset_cache import ImageAssetCache
 from app.models.job import Job
+from app.models.profile import Profile
 from app.models.series import Series, SeriesBook
 from app.models.video import Video
 
@@ -17,6 +18,7 @@ __all__ = [
     "CostRecord",
     "ImageAssetCache",
     "Job",
+    "Profile",
     "Series",
     "SeriesBook",
     "Video",
