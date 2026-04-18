@@ -69,6 +69,7 @@ type BookDetail = {
   genre: string | null;
   genre_override: string | null;
   status: string;
+  dossier: Record<string, unknown> | null;
   packages: Package[];
 };
 
@@ -259,6 +260,12 @@ export default function BookReviewPage({
           {error}
         </div>
       )}
+
+      <DossierEditor
+        bookId={book.id}
+        dossier={book.dossier}
+        onSaved={refresh}
+      />
 
       {book.packages.length === 0 ? (
         <div className="rounded-lg border border-white/10 p-8 text-center">
@@ -758,6 +765,161 @@ function RegenerateForm({
           <span className="text-xs opacity-70">{generateStage}</span>
         )}
       </div>
+    </section>
+  );
+}
+
+function DossierEditor({
+  bookId,
+  dossier,
+  onSaved,
+}: {
+  bookId: number;
+  dossier: Record<string, unknown> | null;
+  onSaved: () => Promise<void> | void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [parseError, setParseError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const startEdit = () => {
+    setDraft(JSON.stringify(dossier ?? {}, null, 2));
+    setParseError(null);
+    setSaveError(null);
+    setEditing(true);
+  };
+
+  const cancel = () => {
+    setEditing(false);
+    setParseError(null);
+    setSaveError(null);
+  };
+
+  const save = async () => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(draft);
+    } catch (e) {
+      setParseError(String(e));
+      return;
+    }
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      setParseError("Dossier must be a JSON object.");
+      return;
+    }
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await apiFetch(`/books/${bookId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ dossier: parsed }),
+      });
+      await onSaved();
+      setEditing(false);
+    } catch (e) {
+      setSaveError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const clear = async () => {
+    if (!confirm("Clear the dossier? Next generation will rebuild it.")) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      await apiFetch(`/books/${bookId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ dossier: null }),
+      });
+      await onSaved();
+      setEditing(false);
+    } catch (e) {
+      setSaveError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="mb-6 rounded-lg border border-white/10 p-6">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <h2 className="font-medium">Book dossier</h2>
+          <p className="mt-1 text-xs opacity-60">
+            Structured research threaded into every generation. Edit to steer the
+            hooks, script, and scene prompts toward specific motifs.
+          </p>
+        </div>
+        {!editing && (
+          <div className="flex items-center gap-2">
+            <button
+              onClick={startEdit}
+              className="rounded-md bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20"
+            >
+              {dossier ? "Edit" : "Write"}
+            </button>
+            {dossier && (
+              <button
+                onClick={clear}
+                disabled={saving}
+                className="rounded-md bg-white/5 px-3 py-1.5 text-sm opacity-70 hover:bg-white/10 hover:opacity-100 disabled:opacity-40"
+                title="Clear — next /generate will rebuild via the LLM"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {!editing ? (
+        dossier ? (
+          <pre className="max-h-96 overflow-auto rounded-md bg-black/40 p-3 text-xs leading-relaxed">
+            {JSON.stringify(dossier, null, 2)}
+          </pre>
+        ) : (
+          <p className="text-xs italic opacity-60">
+            No dossier yet — it will be built on the first /generate call.
+          </p>
+        )
+      ) : (
+        <div className="space-y-3">
+          <textarea
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              setParseError(null);
+            }}
+            spellCheck={false}
+            className="h-80 w-full rounded-md border border-white/10 bg-black/40 p-3 font-mono text-xs leading-relaxed"
+          />
+          {parseError && (
+            <p className="text-xs text-red-200">{parseError}</p>
+          )}
+          {saveError && (
+            <p className="text-xs text-red-200">Save failed: {saveError}</p>
+          )}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={save}
+              disabled={saving}
+              className="rounded-md bg-green-500/20 px-3 py-1.5 text-sm text-green-100 hover:bg-green-500/30 disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+            <button
+              onClick={cancel}
+              disabled={saving}
+              className="rounded-md bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </section>
   );
 }
