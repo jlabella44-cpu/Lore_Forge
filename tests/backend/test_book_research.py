@@ -11,15 +11,16 @@ _FAKE_DOSSIER = {
 
 
 def _make_book(client, *, description: str, isbn: str | None = None):
-    """Create a Book row directly in the test DB and return it attached
+    """Create a ContentItem row directly in the test DB and return it attached
     to a fresh session (so build_dossier can call object_session().commit)."""
     from app import db as db_module
-    from app.models import Book
+    from app.models import ContentItem
 
     session = db_module.SessionLocal()
-    book = Book(
+    book = ContentItem(
+        profile_id=1,
         title="Test Title",
-        author="Test Author",
+        subtitle="Test Author",
         description=description,
         isbn=isbn,
         genre="thriller",

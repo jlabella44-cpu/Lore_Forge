@@ -491,7 +491,7 @@ def test_render_persists_metadata_and_flips_needs_rerender(client, approved_pack
     assert pkg["rendered_duration_seconds"] == 44.0
 
 
-# ---------- Book lifecycle: scheduled → rendered on render success ----------
+# ---------- ContentItem lifecycle: scheduled → rendered on render success ----------
 
 
 def _fake_render_triplet(tmp_path):
@@ -549,7 +549,7 @@ def test_rerender_does_not_clobber_published_status(client, approved_package, tm
     """Re-rendering a live video shouldn't regress book.status from
     published back to rendered."""
     from app.db import SessionLocal
-    from app.models import Book
+    from app.models import ContentItem
 
     pid = approved_package["package_id"]
     book_id = approved_package["book_id"]
@@ -557,7 +557,7 @@ def test_rerender_does_not_clobber_published_status(client, approved_package, tm
     # Simulate the book having been published after an earlier render.
     db = SessionLocal()
     try:
-        book = db.get(Book, book_id)
+        book = db.get(ContentItem, book_id)
         book.status = "published"
         db.commit()
     finally:

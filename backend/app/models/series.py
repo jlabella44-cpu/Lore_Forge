@@ -27,8 +27,8 @@ class Series(Base):
     format: Mapped[str] = mapped_column(String(32))
     series_type: Mapped[str] = mapped_column(String(32))
 
-    source_book_id: Mapped[int | None] = mapped_column(
-        ForeignKey("books.id"), nullable=True
+    source_content_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("content_items.id"), nullable=True
     )
     source_author: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
@@ -48,5 +48,7 @@ class SeriesBook(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     series_id: Mapped[int] = mapped_column(ForeignKey("series.id"), index=True)
-    book_id: Mapped[int] = mapped_column(ForeignKey("books.id"), index=True)
+    content_item_id: Mapped[int] = mapped_column(
+        ForeignKey("content_items.id"), index=True
+    )
     position: Mapped[int] = mapped_column(Integer)

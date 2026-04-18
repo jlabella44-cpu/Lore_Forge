@@ -51,6 +51,32 @@ def client():
     TestSession = sessionmaker(bind=test_engine, autocommit=False, autoflush=False)
     Base.metadata.create_all(test_engine)
 
+    # Seed the `books` profile so tests that create ContentItem rows
+    # have a valid profile_id FK target. Real runs get this via
+    # alembic 0009; tests use create_all which doesn't execute data
+    # migrations.
+    from app.models import Profile
+
+    _seed_session = TestSession()
+    try:
+        if _seed_session.query(Profile).filter(Profile.slug == "books").first() is None:
+            _seed_session.add(
+                Profile(
+                    slug="books",
+                    name="Books",
+                    entity_label="Book",
+                    active=True,
+                    sources_config=[],
+                    prompts={},
+                    taxonomy=[],
+                    cta_fields=[],
+                    render_tones={},
+                )
+            )
+            _seed_session.commit()
+    finally:
+        _seed_session.close()
+
     def override_get_db():
         db = TestSession()
         try:

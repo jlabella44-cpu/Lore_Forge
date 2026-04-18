@@ -107,7 +107,7 @@ def test_publish_yt_shorts_success(client, rendered_package):
     # Description contains the hashtags joined
     assert "#shorts" in kwargs["description"]
 
-    # Book status flipped to published
+    # ContentItem status flipped to published
     bid = rendered_package["book_id"]
     assert client.get(f"/books/{bid}").json()["status"] == "published"
 

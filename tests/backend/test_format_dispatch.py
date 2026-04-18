@@ -68,14 +68,14 @@ class TestListSceneDurations:
 
         counts = [
             {"title": "intro", "words": 10},
-            {"title": "Book A", "words": 30},
-            {"title": "Book B", "words": 20},
+            {"title": "ContentItem A", "words": 30},
+            {"title": "ContentItem B", "words": 20},
             {"title": "cta", "words": 10},
         ]
         durations = _list_scene_durations(counts, 28.0, 4)
         assert len(durations) == 4
         assert abs(sum(durations) - 28.0) < 0.1
-        # Book A should be the longest
+        # ContentItem A should be the longest
         assert durations[1] > durations[2] > durations[0]
 
     def test_even_split_on_missing_counts(self):
@@ -91,7 +91,7 @@ class TestListSceneDurations:
         # One scene with almost no words
         counts = [
             {"title": "intro", "words": 1},
-            {"title": "Book", "words": 100},
+            {"title": "ContentItem", "words": 100},
         ]
         durations = _list_scene_durations(counts, 20.0, 2)
         assert durations[0] >= 1.5  # Floor enforced

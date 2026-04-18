@@ -186,14 +186,14 @@ def test_collect_pending_and_attach(client):
 def test_summary_last_n_days_groups_by_call_provider_package(client):
     # Seed a fantasy book + a package so per_package can join titles
     from app.db import SessionLocal
-    from app.models import Book, ContentPackage
+    from app.models import ContentItem, ContentPackage
 
     db = SessionLocal()
     try:
-        book = Book(title="Sample Book", author="Test", status="review")
+        book = ContentItem(profile_id=1, title="Sample ContentItem", subtitle="Test", status="review")
         db.add(book)
         db.flush()
-        pkg = ContentPackage(book_id=book.id, revision_number=1, script="x")
+        pkg = ContentPackage(content_item_id=book.id, revision_number=1, script="x")
         db.add(pkg)
         db.commit()
         pkg_id = pkg.id
@@ -228,7 +228,7 @@ def test_summary_last_n_days_groups_by_call_provider_package(client):
     assert len(summary["per_package"]) == 1
     entry = summary["per_package"][0]
     assert entry["package_id"] == pkg_id
-    assert entry["book_title"] == "Sample Book"
+    assert entry["book_title"] == "Sample ContentItem"
     assert entry["cents"] > 0
 
 
@@ -261,14 +261,14 @@ def test_summary_ignores_rows_outside_window(client):
 
 def test_per_package_cents_sums(client):
     from app.db import SessionLocal
-    from app.models import Book, ContentPackage
+    from app.models import ContentItem, ContentPackage
 
     db = SessionLocal()
     try:
-        book = Book(title="X", author="Y", status="review")
+        book = ContentItem(profile_id=1, title="X", subtitle="Y", status="review")
         db.add(book)
         db.flush()
-        pkg = ContentPackage(book_id=book.id, revision_number=1, script="x")
+        pkg = ContentPackage(content_item_id=book.id, revision_number=1, script="x")
         db.add(pkg)
         db.commit()
         pkg_id = pkg.id

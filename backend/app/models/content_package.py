@@ -30,7 +30,9 @@ class ContentPackage(Base):
     __tablename__ = "content_packages"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    book_id: Mapped[int] = mapped_column(ForeignKey("books.id"), index=True)
+    content_item_id: Mapped[int] = mapped_column(
+        ForeignKey("content_items.id"), index=True
+    )
     revision_number: Mapped[int] = mapped_column(
         Integer, default=1, server_default="1"
     )

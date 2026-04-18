@@ -12,7 +12,9 @@ class Video(Base):
     __tablename__ = "videos"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    book_id: Mapped[int] = mapped_column(ForeignKey("books.id"), index=True)
+    content_item_id: Mapped[int] = mapped_column(
+        ForeignKey("content_items.id"), index=True
+    )
     package_id: Mapped[int] = mapped_column(ForeignKey("content_packages.id"))
     platform: Mapped[str] = mapped_column(String(32))  # tiktok | yt_shorts | ig_reels | threads
     file_path: Mapped[str | None] = mapped_column(String(1000), nullable=True)

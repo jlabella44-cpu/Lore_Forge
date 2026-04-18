@@ -43,25 +43,52 @@ def _run_discovery_cron() -> None:
     """Scheduled discovery runs in a fresh DB session. Imported lazily so
     registration doesn't pull models into startup if the cron is disabled.
     """
+    from sqlalchemy import func
+
     from app.db import SessionLocal
     from app.sources import nyt
     from app.scoring import SOURCE_WEIGHTS
-    from app.models import Book, BookSource
+    from app.models import ContentItem, ContentItemSource
     from app.services import llm
+    from app.services import profiles as profile_service
 
     db = SessionLocal()
     try:
+        active = profile_service.get_active(db) or profile_service.get_by_slug(
+            db, "books"
+        )
+        if active is None:
+            logger.warning(
+                "Weekly discovery cron skipped: no active profile and no "
+                "'books' fallback seeded"
+            )
+            return
+        profile_id = active.id
+
         hits = nyt.fetch_bestsellers()
         weight = SOURCE_WEIGHTS["nyt"]
         for hit in hits:
             isbn = hit.get("isbn")
-            existing = (
-                db.query(Book).filter(Book.isbn == isbn).first()
-                if isbn
-                else db.query(Book).filter(
-                    Book.title == hit["title"], Book.author == hit["author"]
-                ).first()
-            )
+            # ISBN lives in the research JSON blob after 0010; match
+            # via json_extract.
+            if isbn:
+                existing = (
+                    db.query(ContentItem)
+                    .filter(
+                        func.json_extract(ContentItem.research, "$.isbn")
+                        == isbn
+                    )
+                    .first()
+                )
+            else:
+                existing = (
+                    db.query(ContentItem)
+                    .filter(
+                        ContentItem.title == hit["title"],
+                        ContentItem.subtitle == hit["author"],
+                    )
+                    .first()
+                )
             if existing:
                 continue
             try:
@@ -70,20 +97,29 @@ def _run_discovery_cron() -> None:
                 )
             except Exception:
                 genre, confidence = None, None
-            book = Book(
+            item = ContentItem(
+                profile_id=profile_id,
                 title=hit["title"],
-                author=hit["author"],
-                isbn=isbn,
+                subtitle=hit["author"],
                 description=hit.get("description"),
                 cover_url=hit.get("cover_url"),
-                genre=genre,
-                genre_confidence=confidence,
                 status="discovered",
                 score=weight,
+                research={},
             )
-            db.add(book)
+            if isbn:
+                item.isbn = isbn
+            if genre is not None:
+                item.genre = genre
+            if confidence is not None:
+                item.genre_confidence = confidence
+            db.add(item)
             db.flush()
-            db.add(BookSource(book_id=book.id, source="nyt", score=weight))
+            db.add(
+                ContentItemSource(
+                    content_item_id=item.id, source="nyt", score=weight
+                )
+            )
         db.commit()
         logger.info("Weekly discovery cron completed — %d hits processed", len(hits))
     except Exception:

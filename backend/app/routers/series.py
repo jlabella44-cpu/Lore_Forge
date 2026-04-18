@@ -13,7 +13,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import Book, ContentPackage
+from app.models import ContentItem, ContentPackage
 from app.models.series import Series, SeriesBook
 from app.services import cost, jobs
 from app.routers.generate import _generate_core_with_progress
@@ -74,13 +74,13 @@ def _series_to_dict(s: Series, db: Session) -> dict:
         "description": s.description,
         "format": s.format,
         "series_type": s.series_type,
-        "source_book_id": s.source_book_id,
+        "source_book_id": s.source_content_item_id,
         "source_author": s.source_author,
         "total_parts": s.total_parts,
         "status": s.status,
         "created_at": s.created_at.isoformat() if s.created_at else None,
         "books": [
-            {"book_id": sb.book_id, "position": sb.position}
+            {"book_id": sb.content_item_id, "position": sb.position}
             for sb in books
         ],
         "packages": [
@@ -112,7 +112,7 @@ def create_series(body: CreateSeriesRequest, db: Session = Depends(get_db)) -> d
         description=body.description,
         format=body.format,
         series_type=body.series_type,
-        source_book_id=body.source_book_id,
+        source_content_item_id=body.source_book_id,
         source_author=body.source_author,
         total_parts=body.total_parts,
     )
@@ -152,13 +152,17 @@ def attach_books(
 
     # Clear existing attachments and re-attach in order.
     db.query(SeriesBook).filter(SeriesBook.series_id == series_id).delete()
-    for i, book_id in enumerate(body.book_ids, 1):
-        book = db.get(Book, book_id)
-        if book is None:
+    for i, item_id in enumerate(body.book_ids, 1):
+        item = db.get(ContentItem, item_id)
+        if item is None:
             raise HTTPException(
-                status_code=404, detail=f"Book {book_id} not found"
+                status_code=404, detail=f"Item {item_id} not found"
             )
-        db.add(SeriesBook(series_id=series_id, book_id=book_id, position=i))
+        db.add(
+            SeriesBook(
+                series_id=series_id, content_item_id=item_id, position=i
+            )
+        )
     db.commit()
     return _series_to_dict(series, db)
 
@@ -191,7 +195,7 @@ def generate_series(
         .order_by(SeriesBook.position)
         .all()
     )
-    books = [db.get(Book, sb.book_id) for sb in series_books]
+    books = [db.get(ContentItem, sb.content_item_id) for sb in series_books]
     books = [b for b in books if b is not None]
 
     if not books:
@@ -256,7 +260,7 @@ def _series_generate_worker(
             .order_by(SeriesBook.position)
             .all()
         )
-        books = [db.get(Book, sb.book_id) for sb in series_books]
+        books = [db.get(ContentItem, sb.content_item_id) for sb in series_books]
         books = [b for b in books if b is not None]
         if not books:
             raise RuntimeError("No books attached to series")

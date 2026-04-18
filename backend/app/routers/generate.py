@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from app.config import settings
 from app.context import package_context
 from app.db import get_db
-from app.models import Book, ContentPackage
+from app.models import ContentItem, ContentPackage
 from app.models.format import VideoFormat
 from app.observability import log_call
 from app.services import amazon, cost, jobs, llm, renderer, render_retention
@@ -47,12 +47,12 @@ def generate_all(
     # Eligible: status=discovered AND no existing package on this book.
     packaged_ids = {
         row[0]
-        for row in db.query(ContentPackage.book_id).distinct().all()
+        for row in db.query(ContentPackage.content_item_id).distinct().all()
     }
     eligible = (
-        db.query(Book)
-        .filter(Book.status == "discovered")
-        .order_by(Book.score.desc(), Book.id.asc())
+        db.query(ContentItem)
+        .filter(ContentItem.status == "discovered")
+        .order_by(ContentItem.score.desc(), ContentItem.id.asc())
         .all()
     )
     eligible = [b for b in eligible if b.id not in packaged_ids]
@@ -90,7 +90,7 @@ def generate_package(
     Synchronous by default. Pass `?async=true` to enqueue and get back
     `{job_id, status: "queued"}` with HTTP 202 — poll GET /jobs/{job_id}.
     """
-    book = db.get(Book, book_id)
+    book = db.get(ContentItem, book_id)
     if book is None:
         raise HTTPException(status_code=404, detail="Book not found")
 
@@ -143,9 +143,9 @@ def render_all(
     # Eligible: book.status=scheduled + has an approved package.
     eligible_pkgs = (
         db.query(ContentPackage)
-        .join(Book, Book.id == ContentPackage.book_id)
-        .filter(Book.status == "scheduled", ContentPackage.is_approved.is_(True))
-        .order_by(Book.score.desc(), ContentPackage.id.asc())
+        .join(ContentItem, ContentItem.id == ContentPackage.content_item_id)
+        .filter(ContentItem.status == "scheduled", ContentPackage.is_approved.is_(True))
+        .order_by(ContentItem.score.desc(), ContentPackage.id.asc())
         .all()
     )
 
@@ -188,7 +188,7 @@ def render_package(
         raise HTTPException(
             status_code=400, detail="Package must be approved before rendering"
         )
-    book = db.get(Book, package.book_id)
+    book = db.get(ContentItem, package.content_item_id)
     if book is None:
         raise HTTPException(status_code=404, detail="Book not found")
 
@@ -265,14 +265,14 @@ def approve_package(package_id: int, db: Session = Depends(get_db)) -> dict:
     (
         db.query(ContentPackage)
         .filter(
-            ContentPackage.book_id == package.book_id,
+            ContentPackage.content_item_id == package.content_item_id,
             ContentPackage.id != package_id,
         )
         .update({"is_approved": False}, synchronize_session=False)
     )
     package.is_approved = True
 
-    book = db.get(Book, package.book_id)
+    book = db.get(ContentItem, package.content_item_id)
     if book is not None:
         book.status = "scheduled"
 
@@ -481,7 +481,7 @@ def apply_chosen_hook(
 # it inside jobs.job_session which owns the Job row's lifecycle.
 # ---------------------------------------------------------------------------
 
-def _generate_sync(db: Session, book: Book, book_id: int, note: str | None) -> dict:
+def _generate_sync(db: Session, book: ContentItem, book_id: int, note: str | None) -> dict:
     genre = book.genre_override or book.genre or "other"
     previous_status = book.status
     book.status = "generating"
@@ -498,7 +498,7 @@ def _generate_sync(db: Session, book: Book, book_id: int, note: str | None) -> d
         }
     except Exception as exc:
         db.rollback()
-        book = db.get(Book, book_id)
+        book = db.get(ContentItem, book_id)
         if book is not None:
             book.status = previous_status
             db.commit()
@@ -507,7 +507,7 @@ def _generate_sync(db: Session, book: Book, book_id: int, note: str | None) -> d
 
 def _generate_worker(job_id: int, *, book_id: int, note: str | None) -> None:
     with jobs.job_session(job_id) as (db, set_progress):
-        book = db.get(Book, book_id)
+        book = db.get(ContentItem, book_id)
         if book is None:
             raise RuntimeError(f"Book {book_id} not found")
         genre = book.genre_override or book.genre or "other"
@@ -526,7 +526,7 @@ def _generate_worker(job_id: int, *, book_id: int, note: str | None) -> None:
             set_progress.result(result)
         except Exception:
             db.rollback()
-            book = db.get(Book, book_id)
+            book = db.get(ContentItem, book_id)
             if book is not None:
                 book.status = previous_status
                 db.commit()
@@ -538,9 +538,9 @@ def _render_worker(job_id: int, *, package_id: int) -> None:
         package = db.get(ContentPackage, package_id)
         if package is None:
             raise RuntimeError(f"Package {package_id} not found")
-        book = db.get(Book, package.book_id)
+        book = db.get(ContentItem, package.content_item_id)
         if book is None:
-            raise RuntimeError(f"Book {package.book_id} not found")
+            raise RuntimeError(f"Book {package.content_item_id} not found")
         # Render-time services can read package_id directly — the package
         # already exists so cost records get attached at write time.
         with package_context(package_id):
@@ -553,7 +553,7 @@ def _render_worker(job_id: int, *, package_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 def _generate_core(
-    db: Session, book: Book, genre: str, note: str | None,
+    db: Session, book: ContentItem, genre: str, note: str | None,
     fmt: str = "short_hook",
 ) -> dict:
     return _generate_core_with_progress(db, book, genre, note, lambda _msg: None, fmt=fmt)
@@ -561,7 +561,7 @@ def _generate_core(
 
 def _generate_core_with_progress(
     db: Session,
-    book: Book,
+    book: ContentItem,
     genre: str,
     note: str | None,
     set_progress,
@@ -569,7 +569,7 @@ def _generate_core_with_progress(
     fmt: str = "short_hook",
     series_id: int | None = None,
     part_number: int | None = None,
-    books_for_list: list[Book] | None = None,
+    books_for_list: list[ContentItem] | None = None,
 ) -> dict:
     """Run the staged LLM pipeline, format-aware.
 
@@ -602,12 +602,12 @@ def _generate_core_with_progress(
 
         last_revision = (
             db.query(func.max(ContentPackage.revision_number))
-            .filter(ContentPackage.book_id == book.id)
+            .filter(ContentPackage.content_item_id == book.id)
             .scalar()
             or 0
         )
         package = ContentPackage(
-            book_id=book.id,
+            content_item_id=book.id,
             revision_number=last_revision + 1,
             script=result_pkg["script"],
             narration=result_pkg["narration"],
@@ -644,7 +644,7 @@ def _generate_core_with_progress(
 # ---------------------------------------------------------------------------
 
 def _pipeline_short_hook(
-    book: Book, genre: str, note: str | None, set_progress,
+    book: ContentItem, genre: str, note: str | None, set_progress,
 ) -> dict:
     """5-stage pipeline for single-book short-hook videos.
 
@@ -663,7 +663,7 @@ def _pipeline_short_hook(
     set_progress("Stage 1/5: hook portfolio")
     hooks = llm.generate_hooks(
         title=book.title,
-        author=book.author,
+        author=book.subtitle,
         description=book.description,
         genre=genre,
         dossier=dossier,
@@ -673,7 +673,7 @@ def _pipeline_short_hook(
     set_progress("Stage 2/5: writing script")
     script_pkg = llm.generate_script(
         title=book.title,
-        author=book.author,
+        author=book.subtitle,
         description=book.description,
         genre=genre,
         chosen_hook=chosen_hook_text,
@@ -689,7 +689,7 @@ def _pipeline_short_hook(
             set_progress("Stage 2/5: regenerating (quality gate)")
             script_pkg = llm.generate_script(
                 title=book.title,
-                author=book.author,
+                author=book.subtitle,
                 description=book.description,
                 genre=genre,
                 chosen_hook=chosen_hook_text,
@@ -720,11 +720,11 @@ def _pipeline_short_hook(
 
 
 def _pipeline_list(
-    anchor_book: Book,
+    anchor_book: ContentItem,
     genre: str,
     note: str | None,
     set_progress,
-    books: list[Book],
+    books: list[ContentItem],
     bundle,
 ) -> dict:
     """LIST format: intro → N book mini-pitches → CTA.
@@ -745,7 +745,7 @@ def _pipeline_list(
     book_lines = []
     for i, (b, dossier) in enumerate(zip(books, dossiers), 1):
         book_lines.append(
-            f"Book {i}: {b.title} by {b.author}\n"
+            f"Book {i}: {b.title} by {b.subtitle}\n"
             f"  Description: {b.description or '(none)'}\n"
             f"  Dossier: {_json.dumps(dossier)}"
         )

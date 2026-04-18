@@ -7,14 +7,15 @@ import pytest
 def _seed_books(client, count=3):
     """Insert books directly via the DB to avoid needing the discover pipeline."""
     from app.db import SessionLocal
-    from app.models import Book
+    from app.models import ContentItem
 
     db = SessionLocal()
     ids = []
     for i in range(1, count + 1):
-        book = Book(
-            title=f"Test Book {i}",
-            author=f"Author {i}",
+        book = ContentItem(
+            profile_id=1,
+            title=f"Test ContentItem {i}",
+            subtitle=f"Author {i}",
             description=f"Description for book {i}.",
             genre="fantasy",
             status="discovered",
@@ -124,7 +125,7 @@ class TestSeriesCRUD:
 
     def test_attach_missing_book_404(self, client):
         create = client.post("/series", json={
-            "title": "Missing Book Test",
+            "title": "Missing ContentItem Test",
             "format": "list",
             "series_type": "themed_list",
         })
@@ -142,8 +143,8 @@ class TestSeriesGenerate:
     FAKE_LIST_SCRIPT = {
         "script": (
             "## INTRO\nThe best fantasy books you haven't read yet.\n\n"
-            "## BOOK 1: Test Book 1\nAn epic tale of magic.\n\n"
-            "## BOOK 2: Test Book 2\nA sweeping adventure.\n\n"
+            "## BOOK 1: Test ContentItem 1\nAn epic tale of magic.\n\n"
+            "## BOOK 2: Test ContentItem 2\nA sweeping adventure.\n\n"
             "## CTA\nLinks in bio for every book on this list."
         ),
         "narration": (
@@ -154,8 +155,8 @@ class TestSeriesGenerate:
         ),
         "book_word_counts": [
             {"title": "intro", "words": 9},
-            {"title": "Test Book 1", "words": 6},
-            {"title": "Test Book 2", "words": 4},
+            {"title": "Test ContentItem 1", "words": 6},
+            {"title": "Test ContentItem 2", "words": 4},
             {"title": "cta", "words": 8},
         ],
     }
@@ -163,8 +164,8 @@ class TestSeriesGenerate:
     FAKE_LIST_SCENES = {
         "scenes": [
             {"label": "intro", "prompt": "Fantasy landscape", "focus": "set the mood"},
-            {"label": "Test Book 1", "prompt": "Dark castle", "focus": "epic"},
-            {"label": "Test Book 2", "prompt": "Sailing ship", "focus": "adventure"},
+            {"label": "Test ContentItem 1", "prompt": "Dark castle", "focus": "epic"},
+            {"label": "Test ContentItem 2", "prompt": "Sailing ship", "focus": "adventure"},
             {"label": "cta", "prompt": "Bookshelf warm light", "focus": "inviting"},
         ],
     }

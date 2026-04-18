@@ -73,7 +73,7 @@ FORMAT_COMPOSITION: dict[str, str] = {
 }
 
 
-def render_package(package, book, on_progress=None) -> dict:
+def render_package(package, item, on_progress=None) -> dict:
     """End-to-end render. Returns:
         {file_path, duration_seconds, size_bytes, tone, work_dir}
     """
@@ -101,7 +101,7 @@ def render_package(package, book, on_progress=None) -> dict:
     if on_progress is None:
         on_progress = lambda _msg: None
 
-    genre = (book.genre_override or book.genre or "other")
+    genre = (item.genre_override or item.genre or "other")
     tone = tone_for(genre)
 
     work_dir = Path(settings.renders_dir).resolve() / str(package.id)
@@ -109,22 +109,22 @@ def render_package(package, book, on_progress=None) -> dict:
 
     # The outer log_call wraps the whole pipeline so the summary line shows
     # total wall-clock; inner service-layer log_calls show per-stage timing.
-    return _render_with_log(package, book, scenes_in, tone, work_dir, composition, on_progress)
+    return _render_with_log(package, item, scenes_in, tone, work_dir, composition, on_progress)
 
 
-def _render_with_log(package, book, scenes_in, tone, work_dir, composition, on_progress) -> dict:
+def _render_with_log(package, item, scenes_in, tone, work_dir, composition, on_progress) -> dict:
     with log_call(
         "renderer.render_package",
         package_id=package.id,
-        book_id=book.id,
+        content_item_id=item.id,
         tone=tone,
         scene_count=len(scenes_in),
         composition=composition,
     ) as ctx:
-        return _render_inner(package, book, scenes_in, tone, work_dir, ctx, composition, on_progress)
+        return _render_inner(package, item, scenes_in, tone, work_dir, ctx, composition, on_progress)
 
 
-def _render_inner(package, book, scenes_in, tone, work_dir, ctx, composition, on_progress) -> dict:
+def _render_inner(package, item, scenes_in, tone, work_dir, ctx, composition, on_progress) -> dict:
 
     total_scenes = len(scenes_in)
 
@@ -243,8 +243,8 @@ def _render_inner(package, book, scenes_in, tone, work_dir, ctx, composition, on
 
         props: dict = {
             "tone": tone,
-            "title": book.title,
-            "author": book.author,
+            "title": item.title,
+            "author": item.subtitle,
             "cardSeconds": card_seconds,
             "scenes": scene_props,
             "audio": f"{base_url}/narration.mp3",
@@ -280,8 +280,8 @@ def _render_inner(package, book, scenes_in, tone, work_dir, ctx, composition, on
     # transition from "scheduled" — leave "published" alone (re-render of a
     # live video shouldn't regress its status), and anything else (e.g.
     # "review" if the approval flow shifts) is out of scope for renderer.
-    if book.status == "scheduled":
-        book.status = "rendered"
+    if item.status == "scheduled":
+        item.status = "rendered"
 
     session = object_session(package)
     if session is not None:

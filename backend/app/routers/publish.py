@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.clock import utc_now
 from app.db import get_db
-from app.models import Book, ContentPackage, Video
+from app.models import ContentItem, ContentPackage, Video
 from app.services import meta as meta_svc
 from app.services import tiktok as tiktok_svc
 from app.services import youtube as yt_svc
@@ -52,9 +52,9 @@ def publish_package(
             status_code=400, detail="Package must be approved before publishing"
         )
 
-    book = db.get(Book, package.book_id)
-    if book is None:
-        raise HTTPException(status_code=404, detail="Book not found")
+    item = db.get(ContentItem, package.content_item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Item not found")
 
     mp4_path = _expected_mp4_path(package_id)
     if not mp4_path.exists():
@@ -65,7 +65,7 @@ def publish_package(
 
     titles = package.titles or {}
     hashtags = package.hashtags or {}
-    title = titles.get(platform, book.title)
+    title = titles.get(platform, item.title)
     tag_list = hashtags.get(platform, [])
 
     try:
@@ -83,7 +83,7 @@ def publish_package(
         raise HTTPException(status_code=502, detail=str(exc)) from exc
 
     video = Video(
-        book_id=book.id,
+        content_item_id=item.id,
         package_id=package.id,
         platform=platform,
         file_path=str(mp4_path),
@@ -92,8 +92,8 @@ def publish_package(
     )
     db.add(video)
 
-    # Final lifecycle state for this book.
-    book.status = "published"
+    # Final lifecycle state for this item.
+    item.status = "published"
 
     db.commit()
     db.refresh(video)

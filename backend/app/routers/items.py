@@ -1,8 +1,16 @@
+"""ContentItem CRUD — the renamed successor of the books router.
+
+URL path stays at `/books` for now — the frontend hasn't caught up to
+the ContentItem rename yet. B7 neutralizes the URL prefix and the
+response keys (`author` → `subtitle`, `book_id` → `content_item_id`).
+Until then, the API shape matches the pre-B2 contract so the dashboard
+keeps working unchanged.
+"""
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db import get_db
-from app.models import Book, ContentPackage
+from app.models import ContentItem, ContentPackage
 from app.services.renderer import narration_hash
 
 router = APIRouter()
@@ -21,59 +29,59 @@ def _needs_rerender(package: ContentPackage) -> bool:
 
 
 @router.get("")
-def list_books(
+def list_items(
     include_skipped: bool = False,
     db: Session = Depends(get_db),
 ) -> list[dict]:
-    """Default: hides books with status='skipped'. Pass `?include_skipped=true`
+    """Default: hides items with status='skipped'. Pass `?include_skipped=true`
     to list them too (used by the settings / admin surface)."""
-    q = db.query(Book).order_by(Book.score.desc(), Book.id.desc())
+    q = db.query(ContentItem).order_by(ContentItem.score.desc(), ContentItem.id.desc())
     if not include_skipped:
-        q = q.filter(Book.status != "skipped")
-    books = q.all()
+        q = q.filter(ContentItem.status != "skipped")
+    items = q.all()
     return [
         {
-            "id": b.id,
-            "title": b.title,
-            "author": b.author,
-            "cover_url": b.cover_url,
-            "genre": b.genre_override or b.genre,
-            "genre_source": "override" if b.genre_override else "auto",
-            "genre_confidence": b.genre_confidence,
-            "score": b.score,
-            "status": b.status,
+            "id": it.id,
+            "title": it.title,
+            "author": it.subtitle,
+            "cover_url": it.cover_url,
+            "genre": it.genre_override or it.genre,
+            "genre_source": "override" if it.genre_override else "auto",
+            "genre_confidence": it.genre_confidence,
+            "score": it.score,
+            "status": it.status,
         }
-        for b in books
+        for it in items
     ]
 
 
-@router.get("/{book_id}")
-def get_book(book_id: int, db: Session = Depends(get_db)) -> dict:
-    book = db.get(Book, book_id)
-    if book is None:
-        raise HTTPException(status_code=404, detail="Book not found")
+@router.get("/{item_id}")
+def get_item(item_id: int, db: Session = Depends(get_db)) -> dict:
+    item = db.get(ContentItem, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Item not found")
 
     packages = (
         db.query(ContentPackage)
-        .filter(ContentPackage.book_id == book_id)
+        .filter(ContentPackage.content_item_id == item_id)
         .order_by(ContentPackage.revision_number.desc())
         .all()
     )
 
     return {
-        "id": book.id,
-        "title": book.title,
-        "author": book.author,
-        "isbn": book.isbn,
-        "asin": book.asin,
-        "description": book.description,
-        "cover_url": book.cover_url,
-        "genre": book.genre,
-        "genre_confidence": book.genre_confidence,
-        "genre_override": book.genre_override,
-        "status": book.status,
-        "score": book.score,
-        "dossier": book.dossier,
+        "id": item.id,
+        "title": item.title,
+        "author": item.subtitle,
+        "isbn": item.isbn,
+        "asin": item.asin,
+        "description": item.description,
+        "cover_url": item.cover_url,
+        "genre": item.genre,
+        "genre_confidence": item.genre_confidence,
+        "genre_override": item.genre_override,
+        "status": item.status,
+        "score": item.score,
+        "dossier": item.dossier,
         "packages": [
             {
                 "id": p.id,
@@ -102,9 +110,9 @@ def get_book(book_id: int, db: Session = Depends(get_db)) -> dict:
     }
 
 
-@router.patch("/{book_id}")
-def update_book(
-    book_id: int,
+@router.patch("/{item_id}")
+def update_item(
+    item_id: int,
     payload: dict,
     db: Session = Depends(get_db),
 ) -> dict:
@@ -113,13 +121,13 @@ def update_book(
     `dossier`: pass a dict to replace it wholesale, or `null` to clear it
     (next /generate call will then rebuild from scratch via the LLM).
     """
-    book = db.get(Book, book_id)
-    if book is None:
-        raise HTTPException(status_code=404, detail="Book not found")
+    item = db.get(ContentItem, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Item not found")
     if "genre_override" in payload:
-        book.genre_override = payload["genre_override"] or None
+        item.genre_override = payload["genre_override"] or None
     if "status" in payload:
-        book.status = payload["status"]
+        item.status = payload["status"]
     if "dossier" in payload:
         value = payload["dossier"]
         if value is not None and not isinstance(value, dict):
@@ -127,29 +135,28 @@ def update_book(
                 status_code=400,
                 detail="dossier must be a JSON object or null",
             )
-        book.dossier = value
+        item.dossier = value
     db.commit()
     return {"ok": True}
 
 
-@router.post("/{book_id}/skip")
-def skip_book(book_id: int, db: Session = Depends(get_db)) -> dict:
-    """Mark a book as skipped — hidden from the default queue. Reversible via
-    PATCH /books/{id} with {"status": "discovered"} or similar."""
-    book = db.get(Book, book_id)
-    if book is None:
-        raise HTTPException(status_code=404, detail="Book not found")
-    book.status = "skipped"
+@router.post("/{item_id}/skip")
+def skip_item(item_id: int, db: Session = Depends(get_db)) -> dict:
+    """Mark an item as skipped — hidden from the default queue."""
+    item = db.get(ContentItem, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    item.status = "skipped"
     db.commit()
     return {"ok": True, "status": "skipped"}
 
 
-@router.post("/{book_id}/unskip")
-def unskip_book(book_id: int, db: Session = Depends(get_db)) -> dict:
-    """Reverse of /skip — puts the book back in `discovered` state."""
-    book = db.get(Book, book_id)
-    if book is None:
-        raise HTTPException(status_code=404, detail="Book not found")
-    book.status = "discovered"
+@router.post("/{item_id}/unskip")
+def unskip_item(item_id: int, db: Session = Depends(get_db)) -> dict:
+    """Reverse of /skip — puts the item back in `discovered` state."""
+    item = db.get(ContentItem, item_id)
+    if item is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+    item.status = "discovered"
     db.commit()
     return {"ok": True, "status": "discovered"}

@@ -1,6 +1,6 @@
 from app.models.analytics import Analytics
-from app.models.book import Book
-from app.models.book_source import BookSource
+from app.models.content_item import ContentItem
+from app.models.content_item_source import ContentItemSource
 from app.models.content_package import ContentPackage
 from app.models.cost_record import CostRecord
 from app.models.format import VideoFormat
@@ -12,8 +12,8 @@ from app.models.video import Video
 
 __all__ = [
     "Analytics",
-    "Book",
-    "BookSource",
+    "ContentItem",
+    "ContentItemSource",
     "ContentPackage",
     "CostRecord",
     "ImageAssetCache",

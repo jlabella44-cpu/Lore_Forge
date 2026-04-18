@@ -113,13 +113,13 @@ def test_discover_no_sources_enabled_is_400(client, monkeypatch):
 
 
 def test_discover_multi_source_adds_source_rows_to_existing_book(client, monkeypatch):
-    """A book that shows up in both NYT and Goodreads gets ONE Book row +
-    TWO BookSource rows. Aggregate score sums the weighted contributions."""
+    """A book that shows up in both NYT and Goodreads gets ONE ContentItem row +
+    TWO ContentItemSource rows. Aggregate score sums the weighted contributions."""
     from app.config import settings
 
     monkeypatch.setattr(settings, "sources_enabled", "nyt,goodreads")
 
-    # Same ISBN in both sources → single Book, two sources, combined score.
+    # Same ISBN in both sources → single ContentItem, two sources, combined score.
     nyt_hits = [
         {
             "title": "The Night Circus",
@@ -149,8 +149,8 @@ def test_discover_multi_source_adds_source_rows_to_existing_book(client, monkeyp
         res = client.post("/discover/run")
 
     body = res.json()
-    assert body["created"] == 1  # only one Book row
-    assert body["new_source_rows"] == 2  # two BookSource rows
+    assert body["created"] == 1  # only one ContentItem row
+    assert body["new_source_rows"] == 2  # two ContentItemSource rows
 
     # Aggregate score: nyt(2.0) + goodreads(2.0), both fresh → 4.0
     books = client.get("/books").json()

@@ -116,7 +116,7 @@ def test_generate_async_completes_and_result_is_polled(client, seeded_book, inli
     assert job["started_at"] is not None
     assert job["finished_at"] is not None
 
-    # Book status flipped to review (same as the sync path)
+    # ContentItem status flipped to review (same as the sync path)
     assert client.get(f"/books/{seeded_book}").json()["status"] == "review"
 
 
@@ -151,7 +151,7 @@ def test_generate_async_captures_failure(client, seeded_book, inline_jobs):
     assert job["status"] == "failed"
     assert "Claude exploded" in job["error"]
 
-    # Book status was rolled back from "generating" to prior "discovered"
+    # ContentItem status was rolled back from "generating" to prior "discovered"
     assert client.get(f"/books/{seeded_book}").json()["status"] == "discovered"
 
 
@@ -290,11 +290,11 @@ def test_generate_all_enqueues_only_discovered_books_without_packages(
     from unittest.mock import patch
 
     nyt_hits = [
-        {"title": "Book A", "author": "A A", "isbn": "9780000000001",
+        {"title": "ContentItem A", "author": "A A", "isbn": "9780000000001",
          "description": None, "cover_url": None, "source_rank": 1},
-        {"title": "Book B", "author": "B B", "isbn": "9780000000002",
+        {"title": "ContentItem B", "author": "B B", "isbn": "9780000000002",
          "description": None, "cover_url": None, "source_rank": 2},
-        {"title": "Book C", "author": "C C", "isbn": "9780000000003",
+        {"title": "ContentItem C", "author": "C C", "isbn": "9780000000003",
          "description": None, "cover_url": None, "source_rank": 3},
     ]
     with (
@@ -305,7 +305,7 @@ def test_generate_all_enqueues_only_discovered_books_without_packages(
 
     # Generate a package for book A so it's no longer eligible.
     books = client.get("/books").json()
-    book_a = next(b for b in books if b["title"] == "Book A")
+    book_a = next(b for b in books if b["title"] == "ContentItem A")
     with (
         patch("app.services.llm.generate_hooks", return_value=FAKE_HOOKS),
         patch("app.services.llm.generate_script", return_value=FAKE_SCRIPT),
@@ -373,11 +373,11 @@ def _seed_books_for_batch_render(client, statuses: list[str]) -> list[int]:
     """Seed len(statuses) books, each with an approved package, and set each
     book's status to the corresponding entry. Returns the package ids."""
     from app.db import SessionLocal
-    from app.models import Book, ContentPackage
+    from app.models import ContentItem, ContentPackage
 
     nyt_hits = [
         {
-            "title": f"Book {i}",
+            "title": f"ContentItem {i}",
             "author": f"A {i}",
             "isbn": f"978000000000{i}",
             "description": None,
@@ -409,7 +409,7 @@ def _seed_books_for_batch_render(client, statuses: list[str]) -> list[int]:
     # Override the lifecycle state per-caller (approve leaves it scheduled).
     db = SessionLocal()
     try:
-        books = db.query(Book).order_by(Book.id.asc()).all()
+        books = db.query(ContentItem).order_by(ContentItem.id.asc()).all()
         for book, status in zip(books, statuses):
             book.status = status
         db.commit()

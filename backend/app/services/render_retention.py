@@ -7,7 +7,7 @@ snapshot columns so the UI no longer shows stale "rendered 42d ago" stats.
 
 Eligibility (all must hold):
   * `package.rendered_at` is set and older than `max_age_days`
-  * `book.status != "published"` — live videos stay on disk so the creator
+  * `item.status != "published"` — live videos stay on disk so the creator
     can re-publish from the same asset. Published + aged is a separate
     concern (archive to cold storage) we're not tackling here.
 
@@ -26,7 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.clock import utc_now
 from app.config import settings
-from app.models import Book, ContentPackage, ImageAssetCache
+from app.models import ContentItem, ContentPackage, ImageAssetCache
 from app.observability import log_call
 
 
@@ -38,12 +38,12 @@ def prune_stale_renders(db: Session, max_age_days: int) -> dict:
     renders_root = Path(settings.renders_dir).resolve()
 
     eligible = (
-        db.query(ContentPackage, Book)
-        .join(Book, Book.id == ContentPackage.book_id)
+        db.query(ContentPackage, ContentItem)
+        .join(ContentItem, ContentItem.id == ContentPackage.content_item_id)
         .filter(
             ContentPackage.rendered_at.is_not(None),
             ContentPackage.rendered_at < cutoff,
-            Book.status != "published",
+            ContentItem.status != "published",
         )
         .all()
     )
@@ -55,7 +55,7 @@ def prune_stale_renders(db: Session, max_age_days: int) -> dict:
         max_age_days=max_age_days,
         candidates=len(eligible),
     ) as ctx:
-        for pkg, _book in eligible:
+        for pkg, _item in eligible:
             work_dir = renders_root / str(pkg.id)
             if work_dir.exists():
                 freed_bytes += _dir_size(work_dir)

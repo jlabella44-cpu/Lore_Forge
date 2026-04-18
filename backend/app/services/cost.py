@@ -26,7 +26,7 @@ from typing import Any, Iterator
 from app import context as app_context
 from app import db as _db_module
 from app.clock import utc_now
-from app.models import Book, ContentPackage, CostRecord
+from app.models import ContentItem, ContentPackage, CostRecord
 from app.observability import get_logger
 
 logger = get_logger("cost")
@@ -272,17 +272,20 @@ def summary_last_n_days(days: int = 30) -> dict:
         per_package = []
         if package_totals:
             rows_ = (
-                db.query(ContentPackage, Book)
-                .join(Book, Book.id == ContentPackage.book_id)
+                db.query(ContentPackage, ContentItem)
+                .join(ContentItem, ContentItem.id == ContentPackage.content_item_id)
                 .filter(ContentPackage.id.in_(package_totals.keys()))
                 .all()
             )
-            for pkg, book in rows_:
+            for pkg, item in rows_:
                 per_package.append(
                     {
                         "package_id": pkg.id,
-                        "book_id": book.id,
-                        "book_title": book.title,
+                        # Kept as `book_id`/`book_title` in the API
+                        # response for now — the frontend still uses
+                        # those keys. B7 renames the payload shape.
+                        "book_id": item.id,
+                        "book_title": item.title,
                         "revision_number": pkg.revision_number,
                         "cents": round(package_totals[pkg.id], 2),
                     }

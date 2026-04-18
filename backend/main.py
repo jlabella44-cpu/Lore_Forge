@@ -9,7 +9,7 @@ from app.config import APP_BASE_DIR, settings
 from app.db import init_db
 from app.migrations import run_migrations_to_head
 from app.observability import configure_logging, get_logger
-from app.routers import analytics, books, discover, generate, jobs, publish, series
+from app.routers import analytics, discover, generate, items, jobs, publish, series
 from app.scheduler import register_jobs, scheduler
 
 
@@ -52,7 +52,7 @@ def health() -> dict[str, str]:
 
 
 app.include_router(discover.router, prefix="/discover", tags=["discover"])
-app.include_router(books.router, prefix="/books", tags=["books"])
+app.include_router(items.router, prefix="/books", tags=["items"])
 app.include_router(generate.router, tags=["generate"])
 app.include_router(publish.router, prefix="/publish", tags=["publish"])
 app.include_router(analytics.router, prefix="/analytics", tags=["analytics"])

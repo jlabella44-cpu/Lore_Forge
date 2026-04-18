@@ -3,19 +3,22 @@
 Usage:
     cd backend
     python -m app.seed                 # idempotent — skips rows already present
-    python -m app.seed --wipe          # blow away existing books + packages first
+    python -m app.seed --wipe          # blow away existing items + packages first
 
 Creates:
-  * 3 books with different genres (fantasy, scifi, romance)
-  * One BookSource row per book (NYT) so the queue looks real
-  * A fully-fleshed-out, APPROVED ContentPackage on the fantasy book —
+  * A 'books' Profile row (idempotent — matches migration 0009 so
+    `Base.metadata.create_all` setups without running alembic still
+    get a working active profile).
+  * 3 ContentItems with different genres (fantasy, scifi, romance).
+  * One ContentItemSource row per item (NYT) so the queue looks real.
+  * A fully-fleshed-out, APPROVED ContentPackage on the fantasy item —
     hook portfolio, section-anchored script, scene prompts, narration,
-    word-level captions, per-platform meta. The Render Video button will
-    still need real API keys to run, but the rest of the review UI is
-    fully populated for demo.
+    word-level captions, per-platform meta. The Render Video button
+    will still need real API keys to run, but the rest of the review
+    UI is fully populated for demo.
 
-Nothing here calls Anthropic, OpenAI, Dashscope, NYT, or Firecrawl. Safe to
-run with empty API keys.
+Nothing here calls Anthropic, OpenAI, Dashscope, NYT, or Firecrawl.
+Safe to run with empty API keys.
 """
 from __future__ import annotations
 
@@ -28,7 +31,7 @@ from app import db as db_module
 from app.clock import utc_now
 from app.config import settings
 from app.db import Base
-from app.models import Book, BookSource, ContentPackage
+from app.models import ContentItem, ContentItemSource, ContentPackage, Profile
 
 
 SAMPLES: list[dict] = [
@@ -186,6 +189,53 @@ SAMPLE_PACKAGE = {
 }
 
 
+# Mirrors migration 0009's seeded Books profile. Duplicated so seed.py
+# works on setups that used `Base.metadata.create_all` instead of
+# `alembic upgrade head` (e.g. pytest fixtures).
+_BOOKS_PROFILE = dict(
+    slug="books",
+    name="Books",
+    entity_label="Book",
+    description="Seeded by app.seed — Books profile.",
+    active=True,
+    sources_config=[
+        {"plugin_slug": "nyt", "config": {}},
+        {"plugin_slug": "goodreads", "config": {}},
+        {"plugin_slug": "amazon_movers", "config": {}},
+        {"plugin_slug": "reddit_trends", "config": {}},
+        {"plugin_slug": "booktok", "config": {}},
+    ],
+    prompts={
+        "hook_system": "",
+        "script_system": "",
+        "scene_prompts_system": "",
+        "meta_system": "",
+    },
+    taxonomy=["fantasy", "thriller", "scifi", "romance", "historical_fiction", "other"],
+    cta_fields=[
+        {"key": "amazon_url", "label": "Amazon"},
+        {"key": "bookshop_url", "label": "Bookshop"},
+    ],
+    render_tones={
+        "fantasy": "dark",
+        "thriller": "dark",
+        "scifi": "hype",
+        "romance": "cozy",
+        "historical_fiction": "cozy",
+        "other": "dark",
+    },
+)
+
+
+def _ensure_books_profile(db) -> Profile:
+    profile = db.query(Profile).filter(Profile.slug == "books").first()
+    if profile is None:
+        profile = Profile(**_BOOKS_PROFILE)
+        db.add(profile)
+        db.flush()
+    return profile
+
+
 def run(wipe: bool = False, with_video: bool = True) -> dict:
     # Resolve the engine + session lazily so tests that swap db_module.engine
     # via fixtures see the right database. (A module-level `from app.db import
@@ -194,7 +244,7 @@ def run(wipe: bool = False, with_video: bool = True) -> dict:
     Base.metadata.create_all(db_module.engine)
 
     db = db_module.SessionLocal()
-    created_books = 0
+    created_items = 0
     created_sources = 0
     created_packages = 0
     rendered_video = False
@@ -205,37 +255,50 @@ def run(wipe: bool = False, with_video: bool = True) -> dict:
 
             db.query(CostRecord).delete()
             db.query(ContentPackage).delete()
-            db.query(BookSource).delete()
-            db.query(Book).delete()
+            db.query(ContentItemSource).delete()
+            db.query(ContentItem).delete()
             db.commit()
 
+        profile = _ensure_books_profile(db)
+
         for sample in SAMPLES:
-            book = db.query(Book).filter(Book.isbn == sample["isbn"]).first()
-            if book is None:
-                book = Book(
+            item = (
+                db.query(ContentItem)
+                .filter(ContentItem.profile_id == profile.id)
+                .filter(ContentItem.title == sample["title"])
+                .first()
+            )
+            if item is None:
+                item = ContentItem(
+                    profile_id=profile.id,
                     title=sample["title"],
-                    author=sample["author"],
-                    isbn=sample["isbn"],
+                    subtitle=sample["author"],
                     description=sample["description"],
                     cover_url=sample["cover_url"],
-                    genre=sample["genre"],
-                    genre_confidence=sample["genre_confidence"],
                     score=sample["score"],
                     status="discovered",
+                    research={},
                 )
-                db.add(book)
+                # Book-era fields land in research via @property setters.
+                item.isbn = sample["isbn"]
+                item.genre = sample["genre"]
+                item.genre_confidence = sample["genre_confidence"]
+                db.add(item)
                 db.flush()
-                created_books += 1
+                created_items += 1
 
             existing_source = (
-                db.query(BookSource)
-                .filter(BookSource.book_id == book.id, BookSource.source == sample["source"])
+                db.query(ContentItemSource)
+                .filter(
+                    ContentItemSource.content_item_id == item.id,
+                    ContentItemSource.source == sample["source"],
+                )
                 .first()
             )
             if existing_source is None:
                 db.add(
-                    BookSource(
-                        book_id=book.id,
+                    ContentItemSource(
+                        content_item_id=item.id,
                         source=sample["source"],
                         score=sample["score"],
                     )
@@ -246,35 +309,32 @@ def run(wipe: bool = False, with_video: bool = True) -> dict:
             if sample["genre"] == "fantasy":
                 has_package = (
                     db.query(ContentPackage)
-                    .filter(ContentPackage.book_id == book.id)
+                    .filter(ContentPackage.content_item_id == item.id)
                     .count()
                 )
                 if has_package == 0:
                     pkg = ContentPackage(
-                        book_id=book.id,
+                        content_item_id=item.id,
                         revision_number=1,
                         created_at=utc_now(),
                         **SAMPLE_PACKAGE,
                     )
                     db.add(pkg)
                     db.flush()
-                    book.status = "scheduled"
+                    item.status = "scheduled"
                     if with_video:
                         rendered_video = _render_sample_video(pkg.id)
                         if rendered_video:
-                            # Mirror what the real renderer does on success so
-                            # the demo lifecycle lands on `rendered` and the
-                            # UI shows render stats, not "never rendered".
                             out_mp4 = (
                                 Path(settings.renders_dir).resolve()
                                 / str(pkg.id)
                                 / "out.mp4"
                             )
                             pkg.rendered_at = utc_now()
-                            pkg.rendered_duration_seconds = 5.0  # ffmpeg clip length
+                            pkg.rendered_duration_seconds = 5.0
                             pkg.rendered_size_bytes = out_mp4.stat().st_size
                             pkg.rendered_narration_hash = _narration_hash(pkg.narration)
-                            book.status = "rendered"
+                            item.status = "rendered"
                     created_packages += 1
 
         db.commit()
@@ -282,7 +342,7 @@ def run(wipe: bool = False, with_video: bool = True) -> dict:
         db.close()
 
     return {
-        "books_created": created_books,
+        "books_created": created_items,
         "book_sources_created": created_sources,
         "packages_created": created_packages,
         "sample_video_rendered": rendered_video,
@@ -298,11 +358,11 @@ def _narration_hash(text: str) -> str:
 
 def _render_sample_video(package_id: int) -> bool:
     """Generate a tiny placeholder mp4 at the path /renders/{id}/out.mp4 so
-    the book review page's video preview has something to play offline.
+    the item review page's video preview has something to play offline.
 
-    Uses ffmpeg (Remotion requires it anyway). Returns True on success,
-    False with a printed note if ffmpeg isn't installed or the call fails —
-    we never block seeding over a demo video.
+    Uses ffmpeg. Returns True on success, False with a printed note if
+    ffmpeg isn't installed or the call fails — we never block seeding
+    over a demo video.
     """
     if shutil.which("ffmpeg") is None:
         print(
@@ -315,9 +375,6 @@ def _render_sample_video(package_id: int) -> bool:
     renders_dir.mkdir(parents=True, exist_ok=True)
     out = renders_dir / "out.mp4"
 
-    # 5-second 1080x1920 black video with a "Sample render" title — matches
-    # the tone of the seeded fantasy package (dark + gold). Small (<50 KB)
-    # on libx264 because there's nothing moving.
     cmd = [
         "ffmpeg",
         "-hide_banner",
@@ -351,7 +408,7 @@ def main() -> None:
     parser.add_argument(
         "--wipe",
         action="store_true",
-        help="Delete all books + sources + packages before seeding.",
+        help="Delete all items + sources + packages before seeding.",
     )
     parser.add_argument(
         "--no-video",

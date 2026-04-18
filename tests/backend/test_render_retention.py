@@ -14,7 +14,7 @@ def _make_rendered_package(client, *, rendered_ago_days: int, book_status: str):
     from app.clock import utc_now
     from app.config import settings
     from app.db import SessionLocal
-    from app.models import Book, ContentPackage
+    from app.models import ContentItem, ContentPackage
 
     # Seed via /discover/run so we get a real book + source row.
     nyt_hit = [{
@@ -33,9 +33,9 @@ def _make_rendered_package(client, *, rendered_ago_days: int, book_status: str):
 
     db = SessionLocal()
     try:
-        book = db.query(Book).order_by(Book.id.desc()).first()
+        book = db.query(ContentItem).order_by(ContentItem.id.desc()).first()
         pkg = ContentPackage(
-            book_id=book.id,
+            content_item_id=book.id,
             revision_number=1,
             narration="test narration",
             is_approved=True,
