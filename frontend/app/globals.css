@@ -2,31 +2,141 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Design tokens — see design_handoff_lore_forge_redesign/README.md.
+   All colors use oklch() for perceptual consistency. */
 :root {
-  --background: 222 47% 11%;
-  --foreground: 210 40% 98%;
-  --surface: 222 47% 13%;
-  --border: 0 0% 100% / 0.06;
+  /* Ink / surface — cool neutral near-black */
+  --ink-0: oklch(12% 0.012 260); /* deepest bg */
+  --ink-1: oklch(15% 0.014 260); /* app bg */
+  --ink-2: oklch(18% 0.015 260); /* surface */
+  --ink-3: oklch(22% 0.017 260); /* raised */
+  --ink-4: oklch(28% 0.018 260); /* divider hover */
+
+  /* Foreground */
+  --fg-0: oklch(97% 0.005 260); /* highest contrast */
+  --fg-1: oklch(88% 0.008 260); /* body */
+  --fg-2: oklch(68% 0.012 260); /* secondary */
+  --fg-3: oklch(52% 0.014 260); /* tertiary */
+  --fg-4: oklch(38% 0.014 260); /* faint */
+
+  /* Hairlines */
+  --hair: oklch(100% 0 0 / 0.06);
+  --hair-strong: oklch(100% 0 0 / 0.1);
+
+  /* Accents — forge */
+  --accent: oklch(72% 0.14 285); /* iridescent violet-cyan */
+  --accent-soft: oklch(72% 0.14 285 / 0.15);
+  --accent-dim: oklch(60% 0.1 285);
+  --ember: oklch(78% 0.16 65); /* amber ember — sparing */
+  --ember-soft: oklch(78% 0.16 65 / 0.14);
+
+  /* Status */
+  --ok: oklch(78% 0.13 155);
+  --ok-soft: oklch(78% 0.13 155 / 0.14);
+  --warn: oklch(82% 0.15 85);
+  --warn-soft: oklch(82% 0.15 85 / 0.14);
+  --err: oklch(70% 0.19 25);
+  --err-soft: oklch(70% 0.19 25 / 0.14);
+  --info: oklch(75% 0.12 230);
+  --info-soft: oklch(75% 0.12 230 / 0.14);
+
+  /* Radii */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+  --r-xl: 14px;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 html,
 body {
-  @apply min-h-screen bg-[hsl(var(--background))] text-[hsl(var(--foreground))];
-  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  margin: 0;
+  min-height: 100vh;
+  background: var(--ink-1);
+  color: var(--fg-1);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Subtle starfield — fixed, sits behind all content */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    radial-gradient(1px 1px at 12% 18%, oklch(100% 0 0 / 0.35), transparent 50%),
+    radial-gradient(1px 1px at 82% 42%, oklch(100% 0 0 / 0.25), transparent 50%),
+    radial-gradient(1px 1px at 47% 78%, oklch(100% 0 0 / 0.3), transparent 50%),
+    radial-gradient(1px 1px at 91% 88%, oklch(100% 0 0 / 0.22), transparent 50%),
+    radial-gradient(1px 1px at 22% 62%, oklch(100% 0 0 / 0.18), transparent 50%),
+    radial-gradient(1px 1px at 65% 12%, oklch(100% 0 0 / 0.28), transparent 50%),
+    radial-gradient(1px 1px at 38% 35%, oklch(100% 0 0 / 0.18), transparent 50%);
+  opacity: 0.6;
+}
+
+/* Typography — serif for headings, mono for eyebrows/numeric */
+h1,
+h2,
+h3,
+h4 {
+  font-family: var(--font-serif);
+  font-weight: 450;
+  color: var(--fg-0);
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+h1 {
+  font-size: 34px;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+}
+h2 {
+  font-size: 22px;
+  line-height: 1.2;
+}
+h3 {
+  font-size: 16px;
+  line-height: 1.3;
+  font-weight: 500;
+  font-family: var(--font-sans);
+  letter-spacing: -0.005em;
+}
+
+.eyebrow {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--fg-3);
+}
+
+code,
+.mono,
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 /* Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: hsl(0 0% 100% / 0.08);
-  border-radius: 3px;
+  background: oklch(100% 0 0 / 0.06);
+  border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: hsl(0 0% 100% / 0.14);
+  background: oklch(100% 0 0 / 0.12);
 }
