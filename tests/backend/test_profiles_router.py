@@ -217,6 +217,43 @@ def test_import_rejects_missing_required_keys(client):
     assert "entity_label" in res.json()["detail"]
 
 
+def test_import_bundle_loads_all_example_profiles(client):
+    res = client.post("/profiles/import-bundle")
+    assert res.status_code == 200, res.text
+    body = res.json()
+    # Every shipped example imports cleanly.
+    assert set(body["imported"]) == {"movies", "recipes", "news"}
+    assert body["skipped"] == []
+
+    # Each one is retrievable via the single-profile endpoint.
+    for slug in ("movies", "recipes", "news"):
+        assert client.get(f"/profiles/{slug}").status_code == 200
+
+
+def test_import_bundle_skips_existing_without_overwrite(client):
+    first = client.post("/profiles/import-bundle").json()
+    assert first["imported"]
+
+    second = client.post("/profiles/import-bundle").json()
+    # Everything that was imported the first time is now skipped with
+    # reason="exists".
+    assert second["imported"] == []
+    reasons = {s.get("reason") for s in second["skipped"]}
+    assert reasons == {"exists"}
+
+
+def test_import_bundle_overwrite_replaces_existing(client):
+    client.post("/profiles/import-bundle")
+    # Tweak one of them out-of-band so we can prove overwrite resets it.
+    client.patch("/profiles/movies", json={"description": "hand-edited"})
+    overwritten = client.post("/profiles/import-bundle?overwrite=true").json()
+    assert "movies" in overwritten["imported"]
+    assert (
+        client.get("/profiles/movies").json()["description"]
+        != "hand-edited"
+    )
+
+
 def test_import_rejects_bad_yaml(client):
     res = client.post(
         "/profiles/import",

@@ -252,6 +252,86 @@ def export_profile_yaml(slug: str, db: Session = Depends(get_db)) -> Response:
     )
 
 
+@router.post("/import-bundle")
+def import_bundled_examples(
+    overwrite: bool = False,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Import every YAML under `resources/profiles/` in one call.
+
+    Convenience for bootstrapping a fresh install — the user gets
+    movies, recipes, news (and whatever else ships) registered as
+    inactive profiles they can activate from the dashboard without
+    running a curl loop. The Books profile that 0009 seeded isn't
+    touched.
+
+    Returns `{imported: [slug], skipped: [slug]}`. `overwrite=true`
+    replaces existing profiles; omit to leave user-edited profiles
+    alone (they're reported under `skipped`).
+    """
+    from pathlib import Path
+
+    # resources/ lives at the repo root. `app.config.REPO_ROOT` is
+    # anchored there regardless of CWD, so every entry point (dev
+    # uvicorn, packaged sidecar) finds the same directory.
+    from app.config import REPO_ROOT
+
+    bundle_dir = REPO_ROOT / "resources" / "profiles"
+    if not bundle_dir.is_dir():
+        raise HTTPException(
+            status_code=500,
+            detail=f"Bundle directory missing: {bundle_dir}",
+        )
+
+    imported: list[str] = []
+    skipped: list[dict] = []
+    for path in sorted(bundle_dir.glob("*.yaml")):
+        try:
+            parsed = yaml.safe_load(path.read_text())
+        except yaml.YAMLError as exc:
+            skipped.append({"file": path.name, "reason": f"invalid YAML: {exc}"})
+            continue
+        if not isinstance(parsed, dict):
+            skipped.append({"file": path.name, "reason": "top level not a mapping"})
+            continue
+        slug = parsed.get("slug")
+        if not isinstance(slug, str) or not slug:
+            skipped.append({"file": path.name, "reason": "missing slug"})
+            continue
+
+        existing = profile_service.get_by_slug(db, slug)
+        if existing is not None and not overwrite:
+            skipped.append({"file": path.name, "slug": slug, "reason": "exists"})
+            continue
+
+        # Reuse the single-file import logic for validation symmetry.
+        if existing is None:
+            target = Profile(slug=slug, name="", entity_label="", active=False)
+            db.add(target)
+        else:
+            target = existing
+
+        extra = set(parsed) - set(_SERIALIZABLE_COLUMNS)
+        if extra:
+            skipped.append(
+                {
+                    "file": path.name,
+                    "slug": slug,
+                    "reason": f"unknown keys {sorted(extra)}",
+                }
+            )
+            db.rollback()
+            continue
+
+        for col in _SERIALIZABLE_COLUMNS:
+            if col in parsed:
+                setattr(target, col, parsed[col])
+        db.commit()
+        imported.append(slug)
+
+    return {"imported": imported, "skipped": skipped}
+
+
 @router.post("/import")
 def import_profile_yaml(
     overwrite: bool = False,
