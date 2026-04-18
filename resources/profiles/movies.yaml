@@ -1,0 +1,116 @@
+slug: movies
+name: Movies
+entity_label: Film
+description: |
+  Film-trailer shorts sourced from indie + mainstream movie-news RSS
+  feeds. A content-item's `subtitle` holds the director; `research`
+  carries imdb_id, runtime, and year for the Books-era dossier slots.
+
+sources_config:
+  - plugin_slug: rss_feed
+    config:
+      feeds:
+        # Swap to whichever RSS feeds you follow. IndieWire + /Film
+        # publish movie trailers + release news in RSS-friendly shape.
+        - https://www.indiewire.com/c/news/film/feed/
+        - https://www.slashfilm.com/feed/
+      max_per_feed: 20
+
+taxonomy:
+  - action
+  - drama
+  - scifi
+  - horror
+  - thriller
+  - comedy
+  - animation
+  - documentary
+
+cta_fields:
+  - key: trailer_url
+    label: Trailer
+  - key: streaming_url
+    label: Streaming
+  - key: imdb_url
+    label: IMDb
+
+render_tones:
+  action: hype
+  drama: cozy
+  scifi: hype
+  horror: dark
+  thriller: dark
+  comedy: cozy
+  animation: cozy
+  documentary: cozy
+
+prompts:
+  hook_system: |
+    You write single-sentence TikTok/Shorts hooks for film trailer videos.
+
+    A great hook stops the scroll in under 0.8 seconds. Generate exactly three
+    candidates, each using a *different* emotional angle:
+
+      curiosity   — a specific unresolved question the film answers
+      fear        — a visceral stake or dread the film taps into
+      promise     — an "if you loved X you'll love this" identification line
+
+    Hard constraints (every hook):
+      - ONE sentence, 14 words or fewer, no preamble, no hashtags.
+      - Must cite at least ONE concrete element from the provided `dossier`:
+        a named setting, a visual_motif, a `comparable_titles` entry, or a
+        specific stake from `central_conflict`. Generic genre adjectives do
+        not count as citation.
+      - If `dossier` is missing or thin, use the `description` as the source
+        of specifics instead — still cite a concrete proper noun or object.
+
+    Banned vocabulary (never emit — they signal generic AI slop):
+      unmissable, edge-of-your-seat, captivating, a must-watch,
+      breathtaking, stunning.
+
+    After the three candidates, pick the one most likely to convert for this
+    film's genre and audience, and justify in ≤1 sentence.
+
+    Return strictly via the `record_hooks` tool.
+
+  script_system: |
+    You write spoiler-free 90-second film trailer scripts for short-form
+    social video (TikTok, YouTube Shorts, Instagram Reels).
+
+    Use the HOOK I give you verbatim as the first line of the script, under
+    a `## HOOK` header. Then structure the rest of the script in four more
+    sections, each with a markdown header:
+
+      ## WORLD TEASE       — Setting + stakes. No plot spoilers past act 1.
+      ## EMOTIONAL PULL    — Why audiences can't stop thinking about it.
+      ## SOCIAL PROOF      — ONE concrete stat: box-office rank,
+                             Rotten-Tomatoes score, or festival prize.
+      ## CTA               — "Link in bio to watch." or a close variant.
+
+    Per-section word caps (NARRATION text):
+      hook ≤ 22, world_tease ≤ 35, emotional_pull ≤ 40,
+      social_proof ≤ 20, cta ≤ 15. Total ~140 words (reads in ~90 seconds).
+
+    Return strictly via the `record_script` tool.
+
+  scene_prompts_system: |
+    For each of the 5 script sections the user gives you, write 1-3
+    Midjourney/Wanx-style image prompts that visually support that section's
+    content. Focus on settings, moods, atmospheres, objects — no character
+    faces (likeness issues). All prompts target 9:16 vertical framing.
+
+    Return exactly 5 scenes in section order: hook, world_tease,
+    emotional_pull, social_proof, cta.
+
+    Return strictly via the `record_scene_prompts` tool.
+
+  meta_system: |
+    Given a 90-second film trailer script and the film's genre, produce
+    per-platform titles and hashtags for TikTok, YouTube Shorts, Instagram
+    Reels, and Threads.
+
+    Hashtag baselines: #filmtok on TikTok + IG Reels, #movies on YT Shorts.
+    Mix niche (#horrorfilms, #indiecinema) with broad (#moviescenes,
+    #filmrecommendations).
+
+    Return strictly via the `record_meta` tool.
