@@ -1,11 +1,18 @@
 import type { Metadata } from "next";
-import { DM_Sans } from "next/font/google";
+import { Spectral, JetBrains_Mono } from "next/font/google";
+import { GeistSans } from "geist/font/sans";
 import "./globals.css";
 import { Sidebar } from "@/components/Sidebar";
 
-const font = DM_Sans({
+const serif = Spectral({
   subsets: ["latin"],
-  variable: "--font-body",
+  weight: ["300", "400", "500", "600"],
+  variable: "--font-serif",
+});
+
+const mono = JetBrains_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
 });
 
 export const metadata: Metadata = {
@@ -20,9 +27,22 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark">
-      <body className={`${font.variable} font-sans antialiased`}>
-        <Sidebar />
-        <main className="pl-56 min-h-screen">{children}</main>
+      <body
+        className={`${serif.variable} ${GeistSans.variable} ${mono.variable} font-sans antialiased`}
+        style={
+          {
+            // Alias the geist package's native variable to the
+            // design-system's --font-sans so globals.css stays clean.
+            "--font-sans": "var(--font-geist-sans)",
+          } as React.CSSProperties
+        }
+      >
+        <div className="relative z-[1] grid min-h-screen grid-cols-[240px_1fr]">
+          <Sidebar />
+          <main className="relative min-h-screen overflow-x-hidden">
+            {children}
+          </main>
+        </div>
       </body>
     </html>
   );
