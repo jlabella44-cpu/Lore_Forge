@@ -9,7 +9,17 @@ from app.config import APP_BASE_DIR, settings
 from app.db import init_db
 from app.migrations import run_migrations_to_head
 from app.observability import configure_logging, get_logger
-from app.routers import analytics, discover, generate, items, jobs, profiles, publish, series
+from app.routers import (
+    analytics,
+    discover,
+    generate,
+    items,
+    jobs,
+    profiles,
+    publish,
+    series,
+    settings as settings_router,
+)
 from app.scheduler import register_jobs, scheduler
 
 
@@ -26,6 +36,13 @@ async def lifespan(_: FastAPI):
         log.info("Running alembic upgrade head (desktop mode)")
         run_migrations_to_head()
     init_db()
+    # Desktop mode: hydrate the live `Settings` instance from keyring
+    # so provider keys configured via the Settings UI are visible to
+    # every service immediately, no restart required. Dev mode is a
+    # no-op (`.env` already populated `Settings`).
+    from app.services import secrets as secrets_service
+
+    secrets_service.bootstrap_into_settings()
     register_jobs()
     scheduler.start()
     try:
@@ -59,6 +76,7 @@ app.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 app.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
 app.include_router(series.router, prefix="/series", tags=["series"])
 app.include_router(profiles.router, prefix="/profiles", tags=["profiles"])
+app.include_router(settings_router.router, prefix="/settings", tags=["settings"])
 
 # Serve rendered mp4s (and the intermediate assets that produced them) at
 # /renders/{package_id}/out.mp4 — lets the frontend preview without piping
