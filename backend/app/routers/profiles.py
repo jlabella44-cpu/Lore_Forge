@@ -49,6 +49,7 @@ _SERIALIZABLE_COLUMNS = (
     "description",
     "sources_config",
     "prompts",
+    "prompt_variables",
     "taxonomy",
     "cta_fields",
     "render_tones",
@@ -66,6 +67,7 @@ def _profile_to_dict(p: Profile) -> dict[str, Any]:
         "active": bool(p.active),
         "sources_config": p.sources_config or [],
         "prompts": p.prompts or {},
+        "prompt_variables": p.prompt_variables or {},
         "taxonomy": p.taxonomy or [],
         "cta_fields": p.cta_fields or [],
         "render_tones": p.render_tones or {},
@@ -100,6 +102,7 @@ class ProfileCreate(BaseModel):
     description: str | None = None
     sources_config: list[dict] | None = None
     prompts: dict | None = None
+    prompt_variables: dict | None = None
     taxonomy: list[str] | None = None
     cta_fields: list[dict] | None = None
     render_tones: dict | None = None
@@ -113,6 +116,7 @@ class ProfileUpdate(BaseModel):
     description: str | None = None
     sources_config: list[dict] | None = None
     prompts: dict | None = None
+    prompt_variables: dict | None = None
     taxonomy: list[str] | None = None
     cta_fields: list[dict] | None = None
     render_tones: dict | None = None
@@ -158,6 +162,7 @@ def create_profile(body: ProfileCreate, db: Session = Depends(get_db)) -> dict:
         active=False,
         sources_config=body.sources_config or [],
         prompts=body.prompts or {},
+        prompt_variables=body.prompt_variables or {},
         taxonomy=body.taxonomy or [],
         cta_fields=body.cta_fields or [],
         render_tones=body.render_tones or {},

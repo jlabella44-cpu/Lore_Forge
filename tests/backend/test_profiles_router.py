@@ -254,6 +254,37 @@ def test_import_bundle_overwrite_replaces_existing(client):
     )
 
 
+def test_profile_roundtrip_includes_prompt_variables(client):
+    """Creating + patching + exporting preserves prompt_variables."""
+    res = client.post(
+        "/profiles",
+        json={
+            "slug": "films",
+            "name": "Films",
+            "entity_label": "Film",
+            "prompt_variables": {"entity_type": "film", "audience_noun": "viewers"},
+        },
+    )
+    assert res.status_code == 201, res.text
+    assert res.json()["prompt_variables"] == {
+        "entity_type": "film",
+        "audience_noun": "viewers",
+    }
+
+    # PATCH merges (full replace — the old value is overwritten).
+    patched = client.patch(
+        "/profiles/films",
+        json={"prompt_variables": {"entity_type": "movie"}},
+    )
+    assert patched.json()["prompt_variables"] == {"entity_type": "movie"}
+
+    # Export → parse → reimport round-trips the column.
+    import yaml as _yaml
+
+    dumped = _yaml.safe_load(client.get("/profiles/films/export").content)
+    assert dumped["prompt_variables"] == {"entity_type": "movie"}
+
+
 def test_import_rejects_bad_yaml(client):
     res = client.post(
         "/profiles/import",

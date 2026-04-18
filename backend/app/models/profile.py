@@ -56,6 +56,11 @@ class Profile(Base):
 
     sources_config: Mapped[dict | list | None] = mapped_column(JSON, nullable=True)
     prompts: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    # Jinja variable dict passed to `prompt_renderer.render` when
+    # loading any of the templates in `prompts`. A Books profile
+    # stores {"entity_type": "book", "audience_noun": "readers", ...};
+    # Films swaps to "film" / "viewers"; flat one-level dict.
+    prompt_variables: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     taxonomy: Mapped[list | None] = mapped_column(JSON, nullable=True)
     cta_fields: Mapped[list | None] = mapped_column(JSON, nullable=True)
     render_tones: Mapped[dict | None] = mapped_column(JSON, nullable=True)
