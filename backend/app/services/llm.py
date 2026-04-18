@@ -55,7 +55,8 @@ def _profile_prompt(stage: str, default: str) -> str:
             template = (active.prompts or {}).get(stage)
             if not template:
                 return default
-            return prompt_renderer.render(template, {})
+            variables = active.prompt_variables or {}
+            return prompt_renderer.render(template, variables)
     except Exception:
         return default
 

@@ -133,21 +133,43 @@ def test_migration_0012_populates_books_prompts(tmp_path):
             # the current prompts verbatim, otherwise callers that
             # later migrate through prompt_renderer would see a
             # different LLM input than the legacy direct-import path.
-            # Three stages match the prompts/short_hook.py constants.
-            # scene_prompts_system was reconciled by migration 0013 to
-            # the canonical llm.py version (slightly more verbose);
-            # see 0013's module docstring.
-            assert prompts["hook_system"] == short_hook.HOOKS_SYSTEM
-            assert prompts["script_system"] == short_hook.SCRIPT_SYSTEM
+            # Migrations 0013 reconciled scene_prompts_system with
+            # llm.py and 0015 added Jinja variables to every stage.
+            # Compare each template by rendering with the Books
+            # `prompt_variables` that 0014 seeded — byte-for-byte
+            # equality is the contract test_prompt_variables.py owns
+            # end-to-end; here we use it as a stand-in for the raw
+            # snapshot.
+            books_vars = books.prompt_variables or {
+                "entity_type": "book",
+                "audience_noun": "readers",
+                "platform_tag": "BookTok",
+                "review_site": "Goodreads",
+            }
             assert (
-                prompts["scene_prompts_system"] == llm._SCENE_PROMPTS_SYSTEM
+                prompt_renderer.render(prompts["hook_system"], books_vars)
+                == short_hook.HOOKS_SYSTEM
             )
-            assert prompts["meta_system"] == short_hook.META_SYSTEM
+            assert (
+                prompt_renderer.render(prompts["script_system"], books_vars)
+                == short_hook.SCRIPT_SYSTEM
+            )
+            assert (
+                prompt_renderer.render(
+                    prompts["scene_prompts_system"], books_vars
+                )
+                == llm._SCENE_PROMPTS_SYSTEM
+            )
+            assert (
+                prompt_renderer.render(prompts["meta_system"], books_vars)
+                == short_hook.META_SYSTEM
+            )
 
-            # render() over each should round-trip unchanged (no Jinja
-            # variables present).
+            # render() over each template with the seeded vars
+            # succeeds (post-0015 templates contain Jinja placeholders
+            # that would fail under StrictUndefined without variables).
             for key, raw in prompts.items():
-                assert prompt_renderer.render(raw, {}) == raw
+                prompt_renderer.render(raw, books_vars)
     finally:
         engine.dispose()
 
