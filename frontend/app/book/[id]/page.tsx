@@ -1,16 +1,23 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useState } from "react";
+import { Check, Copy, Play } from "lucide-react";
 
-import { apiFetch, CostSummary, dollars, pollJob, rendersUrl } from "@/lib/api";
+import { apiFetch, dollars, pollJob, rendersUrl, type CostSummary } from "@/lib/api";
+import { BookCover } from "@/components/ui/BookCover";
+import { Button } from "@/components/ui/Button";
+import { Card, HeroCard } from "@/components/ui/Card";
+import { Chip } from "@/components/ui/Chip";
+import { Crumb } from "@/components/ui/Crumb";
+import { ScoreBar } from "@/components/ui/ScoreBar";
+import { StatusChip } from "@/components/ui/StatusChip";
+import { Tabs } from "@/components/ui/Tabs";
 
 type HookAlternative = { angle: string; text: string };
 
 type Scene = {
   section?: string;
   label?: string;
-  // Back-compat: older packages have `prompt: string`; new ones use `prompts: string[]`.
   prompt?: string;
   prompts?: string[];
   focus: string;
@@ -22,11 +29,7 @@ function scenePrompts(scene: Scene): string[] {
   return [];
 }
 
-type CaptionWord = {
-  word: string;
-  start: number;
-  end: number;
-};
+type CaptionWord = { word: string; start: number; end: number };
 
 type Package = {
   id: number;
@@ -45,6 +48,21 @@ type Package = {
   regenerate_note: string | null;
   is_approved: boolean;
   created_at: string | null;
+  needs_rerender: boolean;
+};
+
+type BookDetail = {
+  id: number;
+  title: string;
+  author: string;
+  isbn: string | null;
+  genre: string | null;
+  genre_override: string | null;
+  cover_url: string | null;
+  status: string;
+  score: number;
+  dossier: Record<string, unknown> | null;
+  packages: Package[];
 };
 
 const SECTION_LABEL: Record<string, string> = {
@@ -61,24 +79,25 @@ const ANGLE_LABEL: Record<string, string> = {
   promise: "Promise",
 };
 
-type BookDetail = {
-  id: number;
-  title: string;
-  author: string;
-  isbn: string | null;
-  genre: string | null;
-  genre_override: string | null;
-  status: string;
-  dossier: Record<string, unknown> | null;
-  packages: Package[];
-};
-
-const PLATFORMS: Array<{ key: string; label: string }> = [
-  { key: "tiktok", label: "TikTok" },
-  { key: "yt_shorts", label: "YouTube Shorts" },
-  { key: "ig_reels", label: "Instagram Reels" },
-  { key: "threads", label: "Threads" },
+const PUBLISH_TARGETS = [
+  { key: "yt_shorts", glyph: "YT", label: "YouTube Shorts" },
+  { key: "tiktok", glyph: "TT", label: "TikTok" },
+  { key: "ig_reels", glyph: "IG", label: "Instagram Reels" },
+  { key: "threads", glyph: "TH", label: "Threads" },
 ];
+
+const PLATFORMS = [
+  { key: "tiktok", glyph: "TT", label: "TikTok" },
+  { key: "yt_shorts", glyph: "YT", label: "YouTube Shorts" },
+  { key: "ig_reels", glyph: "IG", label: "Instagram Reels" },
+  { key: "threads", glyph: "TH", label: "Threads" },
+];
+
+type TabKey = "script" | "hooks" | "scenes" | "narration" | "meta";
+
+// ---------------------------------------------------------------------------
+// Page
+// ---------------------------------------------------------------------------
 
 export default function BookReviewPage({
   params,
@@ -88,26 +107,29 @@ export default function BookReviewPage({
   const [book, setBook] = useState<BookDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<number | null>(null);
-  const [generating, setGenerating] = useState(false);
-  const [approving, setApproving] = useState(false);
-  const [regenNote, setRegenNote] = useState("");
-
+  const [activeTab, setActiveTab] = useState<TabKey>("script");
   const [costs, setCosts] = useState<CostSummary | null>(null);
+  const [regenNote, setRegenNote] = useState("");
+  const [generating, setGenerating] = useState(false);
+  const [generateStage, setGenerateStage] = useState<string | null>(null);
+  const [approving, setApproving] = useState(false);
+  const [rendering, setRendering] = useState(false);
+  const [renderStage, setRenderStage] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState<string | null>(null);
+  const [published, setPublished] = useState<
+    Record<string, { external_id: string; published_at: string } | { error: string }>
+  >({});
 
   const refresh = async () => {
     setError(null);
     try {
       const data = await apiFetch<BookDetail>(`/books/${params.id}`);
       setBook(data);
-      // Snap to the latest revision unless the user picked one already.
       setActiveId((prev) => prev ?? data.packages[0]?.id ?? null);
     } catch (e) {
       setError(String(e));
     }
-    // Cost lookup is best-effort; don't fail the page if it breaks.
-    apiFetch<CostSummary>("/analytics/cost?days=365")
-      .then(setCosts)
-      .catch(() => {});
+    apiFetch<CostSummary>("/analytics/cost?days=365").then(setCosts).catch(() => {});
   };
 
   useEffect(() => {
@@ -115,7 +137,19 @@ export default function BookReviewPage({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params.id]);
 
-  const [generateStage, setGenerateStage] = useState<string | null>(null);
+  // Preserve tab in URL hash.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const hash = window.location.hash.replace("#", "") as TabKey;
+    if (["script", "hooks", "scenes", "narration", "meta"].includes(hash)) {
+      setActiveTab(hash);
+    }
+  }, []);
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      window.history.replaceState(null, "", `#${activeTab}`);
+    }
+  }, [activeTab]);
 
   const generatePackage = async (note?: string) => {
     setGenerating(true);
@@ -129,13 +163,8 @@ export default function BookReviewPage({
       const job = await pollJob(queued.job_id, (j) =>
         setGenerateStage(j.message ?? j.status),
       );
-      if (job.status === "failed") {
-        throw new Error(job.error ?? "Generation failed");
-      }
-      const result = job.result as {
-        package_id: number;
-        revision_number: number;
-      };
+      if (job.status === "failed") throw new Error(job.error ?? "Generation failed");
+      const result = job.result as { package_id: number };
       setActiveId(result.package_id);
       setRegenNote("");
       await refresh();
@@ -160,20 +189,10 @@ export default function BookReviewPage({
     }
   };
 
-  const [rendering, setRendering] = useState(false);
-  const [renderStage, setRenderStage] = useState<string | null>(null);
-  const [lastRender, setLastRender] = useState<{
-    file_path: string;
-    duration_seconds: number;
-    size_bytes: number;
-    tone: string;
-  } | null>(null);
-
   const render = async (packageId: number) => {
     setRendering(true);
     setRenderStage("queued");
     setError(null);
-    setLastRender(null);
     try {
       const queued = await apiFetch<{ job_id: number; status: string }>(
         `/packages/${packageId}/render?async=true`,
@@ -182,18 +201,8 @@ export default function BookReviewPage({
       const job = await pollJob(queued.job_id, (j) =>
         setRenderStage(j.message ?? j.status),
       );
-      if (job.status === "failed") {
-        throw new Error(job.error ?? "Render failed");
-      }
-      setLastRender(
-        job.result as {
-          package_id: number;
-          file_path: string;
-          duration_seconds: number;
-          size_bytes: number;
-          tone: string;
-        },
-      );
+      if (job.status === "failed") throw new Error(job.error ?? "Render failed");
+      await refresh();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -202,23 +211,16 @@ export default function BookReviewPage({
     }
   };
 
-  const [publishing, setPublishing] = useState<string | null>(null);
-  const [published, setPublished] = useState<
-    Record<string, { external_id: string; published_at: string } | { error: string }>
-  >({});
-
   const publish = async (packageId: number, platform: string) => {
     setPublishing(platform);
     setError(null);
     try {
       const res = await apiFetch<{
-        video_id: number;
-        platform: string;
         external_id: string;
         published_at: string;
       }>(`/publish/${packageId}/${platform}`, { method: "POST" });
       setPublished((prev) => ({ ...prev, [platform]: res }));
-      await refresh(); // book.status → "published"
+      await refresh();
     } catch (e) {
       setPublished((prev) => ({ ...prev, [platform]: { error: String(e) } }));
     } finally {
@@ -228,35 +230,67 @@ export default function BookReviewPage({
 
   if (!book) {
     return (
-      <main className="mx-auto max-w-6xl p-8">
-        <Link href="/dashboard" className="text-sm opacity-70 hover:underline">
-          ← Queue
-        </Link>
-        <p className="mt-6 text-sm opacity-70">
+      <div className="mx-auto max-w-[1240px] px-10 pb-20 pt-9">
+        <Crumb href="/dashboard" label="Queue" />
+        <p className="mt-6 text-sm text-fg-3">
           {error ? `Error: ${error}` : "Loading…"}
         </p>
-      </main>
+      </div>
     );
   }
 
-  const effectiveGenre = book.genre_override || book.genre || "uncategorized";
-  const active = book.packages.find((p) => p.id === activeId) ?? book.packages[0] ?? null;
+  const effectiveGenre =
+    book.genre_override || book.genre || "uncategorized";
+  const active =
+    book.packages.find((p) => p.id === activeId) ?? book.packages[0] ?? null;
+  const costCents =
+    costs?.per_package.find((p) => p.package_id === active?.id)?.cents ?? null;
 
   return (
-    <main className="mx-auto max-w-6xl p-8">
-      <Link href="/dashboard" className="text-sm opacity-70 hover:underline">
-        ← Queue
-      </Link>
-      <header className="mt-2 mb-8">
-        <h1 className="text-3xl font-semibold">{book.title}</h1>
-        <p className="mt-1 text-sm opacity-70">
-          {book.author} · <span className="italic">{effectiveGenre}</span> · status:{" "}
-          <code>{book.status}</code>
-        </p>
-      </header>
+    <div className="mx-auto max-w-[1240px] px-10 pb-20 pt-9">
+      <Crumb href="/dashboard" label="Queue" />
+
+      {/* Hero */}
+      <HeroCard className="mb-7">
+        <div className="grid grid-cols-[140px_1fr_auto] items-start gap-6">
+          <div className="w-[140px]">
+            <BookCover
+              coverUrl={book.cover_url}
+              title={book.title}
+              author={book.author}
+            />
+          </div>
+          <div>
+            <span className="mb-2 block font-mono text-[10.5px] uppercase tracking-[0.14em] text-fg-3">
+              {effectiveGenre}
+            </span>
+            <h1 className="font-serif text-[40px] font-[450] leading-[1.05] tracking-[-0.02em] text-fg-0">
+              {book.title}
+            </h1>
+            <p className="mt-2 text-sm text-fg-2">by {book.author}</p>
+            <div className="mt-4 flex items-center gap-3">
+              <StatusChip status={book.status} />
+              <ScoreBar score={book.score} width={72} />
+              {costCents !== null && costCents > 0 && (
+                <Chip variant="plain" dot={false}>
+                  {dollars(costCents)} spent
+                </Chip>
+              )}
+            </div>
+          </div>
+          <HeroActions
+            pkg={active}
+            onApprove={approve}
+            approving={approving}
+            onRender={render}
+            rendering={rendering}
+            renderStage={renderStage}
+          />
+        </div>
+      </HeroCard>
 
       {error && (
-        <div className="mb-6 rounded-md border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-200">
+        <div className="mb-6 rounded-lg border border-err/30 bg-err-soft p-4 text-sm text-[oklch(90%_0.12_25)]">
           {error}
         </div>
       )}
@@ -268,508 +302,238 @@ export default function BookReviewPage({
       />
 
       {book.packages.length === 0 ? (
-        <div className="rounded-lg border border-white/10 p-8 text-center">
-          <p className="mb-4 text-sm opacity-70">No content package yet.</p>
-          <button
-            onClick={() => generatePackage()}
-            disabled={generating}
-            className="rounded-md bg-white/10 px-4 py-2 text-sm hover:bg-white/20 disabled:opacity-50"
-          >
+        <Card className="text-center text-sm text-fg-2">
+          <p className="mb-4">No content package yet.</p>
+          <Button variant="primary" onClick={() => generatePackage()} disabled={generating}>
             {generating ? "Generating…" : "Generate Package"}
-          </button>
-        </div>
+          </Button>
+        </Card>
       ) : (
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_240px]">
-          <div>
-            {active && (
-              <PackageView
+        active && (
+          <div className="grid grid-cols-1 gap-8 @max-[1100px]:grid-cols-1 lg:grid-cols-[1fr_320px]">
+            <div className="min-w-0">
+              <Tabs
+                tabs={[
+                  { key: "script", label: "Script" },
+                  {
+                    key: "hooks",
+                    label: "Hooks",
+                    count: active.hook_alternatives?.length,
+                  },
+                  {
+                    key: "scenes",
+                    label: "Image Prompts",
+                    count: (active.visual_prompts ?? []).reduce(
+                      (n, s) => n + scenePrompts(s).length,
+                      0,
+                    ),
+                  },
+                  { key: "narration", label: "Narration" },
+                  { key: "meta", label: "Platform Meta" },
+                ]}
+                active={activeTab}
+                onChange={setActiveTab}
+              />
+
+              {activeTab === "script" && (
+                <EditableScript pkg={active} onRefresh={refresh} />
+              )}
+              {activeTab === "hooks" && (
+                <HookPortfolio pkg={active} onRefresh={refresh} />
+              )}
+              {activeTab === "scenes" && (
+                <EditableScenes pkg={active} onRefresh={refresh} />
+              )}
+              {activeTab === "narration" && <NarrationView pkg={active} />}
+              {activeTab === "meta" && (
+                <EditablePlatformMeta pkg={active} onRefresh={refresh} />
+              )}
+
+              <RegenerateForm
+                note={regenNote}
+                setNote={setRegenNote}
+                onSubmit={() => generatePackage(regenNote || undefined)}
+                generating={generating}
+                generateStage={generateStage}
+              />
+            </div>
+
+            <aside className="lg:sticky lg:top-6 lg:h-fit">
+              <PublishPanel
                 pkg={active}
-                onApprove={approve}
-                approving={approving}
-                onRender={render}
-                rendering={rendering}
-                renderStage={renderStage}
-                lastRender={lastRender}
                 onPublish={publish}
                 publishing={publishing}
                 published={published}
-                onRefresh={refresh}
-                costCents={
-                  costs?.per_package.find((p) => p.package_id === active.id)
-                    ?.cents ?? null
-                }
               />
-            )}
-            <RegenerateForm
-              note={regenNote}
-              setNote={setRegenNote}
-              onSubmit={() => generatePackage(regenNote || undefined)}
-              generating={generating}
-              generateStage={generateStage}
-            />
+              <RevisionHistory
+                packages={book.packages}
+                activeId={active.id}
+                onSelect={setActiveId}
+              />
+            </aside>
           </div>
-          <aside>
-            <RevisionHistory
-              packages={book.packages}
-              activeId={active?.id ?? null}
-              onSelect={setActiveId}
-            />
-          </aside>
-        </div>
+        )
       )}
-    </main>
+    </div>
   );
 }
 
 // ---------------------------------------------------------------------------
+// Hero actions
+// ---------------------------------------------------------------------------
 
-const PUBLISH_TARGETS: Array<{ key: string; label: string }> = [
-  { key: "yt_shorts", label: "YouTube Shorts" },
-  { key: "tiktok", label: "TikTok" },
-  { key: "ig_reels", label: "Instagram Reels" },
-  { key: "threads", label: "Threads" },
-];
-
-type PublishStatus =
-  | { external_id: string; published_at: string }
-  | { error: string };
-
-function PackageView({
+function HeroActions({
   pkg,
   onApprove,
   approving,
   onRender,
   rendering,
   renderStage,
-  lastRender,
-  onPublish,
-  publishing,
-  published,
-  onRefresh,
-  costCents,
 }: {
-  pkg: Package;
+  pkg: Package | null;
   onApprove: (id: number) => void;
   approving: boolean;
   onRender: (id: number) => void;
   rendering: boolean;
   renderStage: string | null;
-  lastRender: {
-    file_path: string;
-    duration_seconds: number;
-    size_bytes: number;
-    tone: string;
-  } | null;
-  onPublish: (id: number, platform: string) => void;
-  publishing: string | null;
-  published: Record<string, PublishStatus>;
-  onRefresh: () => Promise<void> | void;
-  costCents: number | null;
 }) {
+  if (!pkg) return null;
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-sm">
-          <span className="opacity-70">Revision {pkg.revision_number}</span>
-          {pkg.is_approved && (
-            <span className="ml-2 rounded-full bg-green-500/20 px-2 py-0.5 text-xs text-green-200">
-              approved
-            </span>
-          )}
-          {costCents !== null && costCents > 0 && (
-            <span
-              title="Total spent on LLM + TTS + images + Whisper calls for this revision"
-              className="ml-2 rounded-full bg-white/10 px-2 py-0.5 text-xs tabular-nums"
-            >
-              {dollars(costCents)} spent
-            </span>
-          )}
-          {pkg.regenerate_note && (
-            <div className="mt-1 text-xs opacity-60">
-              note: &ldquo;{pkg.regenerate_note}&rdquo;
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          {pkg.is_approved && (
-            <button
-              onClick={() => onRender(pkg.id)}
-              disabled={rendering}
-              className="rounded-md bg-white/10 px-4 py-2 text-sm hover:bg-white/20 disabled:opacity-50"
-              title="Synthesize narration, generate images, render mp4"
-            >
-              {rendering
-                ? `Rendering… ${renderStage ?? ""}`.trim()
-                : "Render Video"}
-            </button>
-          )}
-          {!pkg.is_approved && (
-            <button
-              onClick={() => onApprove(pkg.id)}
-              disabled={approving}
-              className="rounded-md bg-green-500/20 px-4 py-2 text-sm text-green-100 hover:bg-green-500/30 disabled:opacity-50"
-            >
-              {approving ? "Approving…" : "Approve"}
-            </button>
-          )}
-        </div>
-      </div>
-
-      {(lastRender || pkg.is_approved) && (
-        <div className="space-y-3 rounded-lg border border-green-500/30 bg-green-500/5 p-4 text-sm">
-          {lastRender ? (
-            <div className="opacity-80">
-              Rendered {lastRender.duration_seconds.toFixed(1)}s · {(lastRender.size_bytes / 1_048_576).toFixed(1)} MB · tone={lastRender.tone}
-            </div>
-          ) : (
-            <div className="opacity-70">
-              Preview of previously rendered mp4 (404s if the package hasn&apos;t been rendered yet).
-            </div>
-          )}
-          {/* Inline preview via the backend's /renders static mount.
-              `key` forces a reload after a fresh render overwrites the file. */}
-          <video
-            key={`${pkg.id}-${lastRender?.size_bytes ?? "seed"}`}
-            src={rendersUrl(pkg.id)}
-            controls
-            playsInline
-            className="w-full max-w-[360px] rounded-md border border-white/10 bg-black"
-            style={{ aspectRatio: "9 / 16" }}
-          />
-          {lastRender && (
-            <code className="block text-xs opacity-70">{lastRender.file_path}</code>
-          )}
-
-          <div className="border-t border-green-500/20 pt-3">
-            <div className="mb-2 text-xs font-medium opacity-70">Publish (manual-approve gate)</div>
-            <div className="flex flex-wrap gap-2">
-              {PUBLISH_TARGETS.map(({ key, label }) => {
-                const status = published[key];
-                const isPublishing = publishing === key;
-                const succeeded = status && !("error" in status);
-                return (
-                  <div key={key} className="flex flex-col gap-1">
-                    <button
-                      onClick={() => onPublish(pkg.id, key)}
-                      disabled={isPublishing || !!succeeded}
-                      className={`rounded-md px-3 py-1.5 text-xs disabled:opacity-50 ${
-                        succeeded
-                          ? "bg-green-500/30 text-green-100"
-                          : "bg-white/10 hover:bg-white/20"
-                      }`}
-                    >
-                      {succeeded
-                        ? `✓ ${label}`
-                        : isPublishing
-                          ? `Uploading to ${label}…`
-                          : label}
-                    </button>
-                    {status && "error" in status && (
-                      <div
-                        className="max-w-xs truncate text-xs text-red-200"
-                        title={status.error}
-                      >
-                        {status.error}
-                      </div>
-                    )}
-                    {succeeded && (
-                      <div className="text-xs opacity-60">
-                        id: {status.external_id}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      <EditableScriptSection pkg={pkg} onRefresh={onRefresh} />
-
-      {pkg.hook_alternatives && pkg.hook_alternatives.length > 0 && (
-        <HookPortfolio pkg={pkg} onRefresh={onRefresh} />
-      )}
-
-      <EditableScenesSection pkg={pkg} onRefresh={onRefresh} />
-
-      <Section title="Narration (TTS-ready)" copyText={pkg.narration}>
-        <p className="whitespace-pre-wrap text-sm leading-relaxed">
-          {pkg.narration}
-        </p>
-        {pkg.captions && pkg.captions.length > 0 && (
-          <CaptionsPreview captions={pkg.captions} />
-        )}
-      </Section>
-
-      <EditablePlatformMetaSection pkg={pkg} onRefresh={onRefresh} />
-
-      <Section title="Affiliate links">
-        <div className="space-y-2">
-          {pkg.affiliate_amazon ? (
-            <AffiliateRow label="Amazon" url={pkg.affiliate_amazon} />
-          ) : null}
-          {pkg.affiliate_bookshop ? (
-            <AffiliateRow label="Bookshop" url={pkg.affiliate_bookshop} />
-          ) : null}
-          {!pkg.affiliate_amazon && !pkg.affiliate_bookshop && (
-            <p className="text-xs opacity-60">
-              No affiliate keys configured (AMAZON_ASSOCIATE_TAG / BOOKSHOP_AFFILIATE_ID).
-            </p>
-          )}
-        </div>
-      </Section>
-    </div>
-  );
-}
-
-function Section({
-  title,
-  copyText,
-  children,
-}: {
-  title: string;
-  copyText?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-lg border border-white/10 p-6">
-      <div className="mb-3 flex items-center justify-between">
-        <h2 className="font-medium">{title}</h2>
-        {copyText !== undefined && <CopyButton text={copyText} />}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function AffiliateRow({ label, url }: { label: string; url: string }) {
-  return (
-    <div className="flex items-center gap-3">
-      <span className="w-24 text-xs opacity-60">{label}</span>
-      <code className="flex-1 truncate text-xs">{url}</code>
-      <CopyButton text={url} />
-    </div>
-  );
-}
-
-function CaptionsPreview({ captions }: { captions: CaptionWord[] }) {
-  const [expanded, setExpanded] = useState(false);
-  const durationSeconds = captions[captions.length - 1]?.end ?? 0;
-  const preview = captions
-    .slice(0, 14)
-    .map((c) => c.word)
-    .join(" ");
-  const full = captions.map((c) => `${c.word}`).join(" ");
-
-  return (
-    <div className="mt-4 rounded-md border border-white/5 bg-white/5 p-3 text-xs">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="opacity-70">
-          Captions — {captions.length} words,{" "}
-          {durationSeconds.toFixed(1)}s (word-level, Whisper)
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setExpanded((v) => !v)}
-            className="rounded-md bg-white/10 px-2 py-1 hover:bg-white/20"
-          >
-            {expanded ? "Collapse" : "Show all"}
-          </button>
-          <CopyButton text={full} />
-        </div>
-      </div>
-      {expanded ? (
-        <ol className="max-h-64 space-y-0.5 overflow-y-auto font-mono text-[11px] opacity-80">
-          {captions.map((c, i) => (
-            <li key={i}>
-              <span className="inline-block w-16 opacity-60 tabular-nums">
-                {c.start.toFixed(2)}s
-              </span>
-              {c.word}
-            </li>
-          ))}
-        </ol>
-      ) : (
-        <p className="italic opacity-75">
-          {preview}
-          {captions.length > 14 ? "…" : ""}
-        </p>
-      )}
-    </div>
-  );
-}
-
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = useState(false);
-  const onClick = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      /* clipboard may be blocked — swallow */
-    }
-  };
-  return (
-    <button
-      onClick={onClick}
-      className="rounded-md bg-white/10 px-2 py-1 text-xs hover:bg-white/20"
-    >
-      {copied ? "Copied" : "Copy"}
-    </button>
-  );
-}
-
-function RegenerateForm({
-  note,
-  setNote,
-  onSubmit,
-  generating,
-  generateStage,
-}: {
-  note: string;
-  setNote: (v: string) => void;
-  onSubmit: () => void;
-  generating: boolean;
-  generateStage: string | null;
-}) {
-  return (
-    <section className="mt-6 rounded-lg border border-white/10 p-6">
-      <h2 className="mb-3 font-medium">Regenerate</h2>
-      <textarea
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        placeholder='Optional: tell Claude how to change it. "Make the hook darker." "Less dramatic." "More social proof."'
-        className="mb-3 h-24 w-full rounded-md border border-white/10 bg-transparent p-3 text-sm"
-      />
-      <div className="flex items-center gap-3">
-        <button
-          onClick={onSubmit}
-          disabled={generating}
-          className="rounded-md bg-white/10 px-4 py-2 text-sm hover:bg-white/20 disabled:opacity-50"
+    <div className="flex flex-col items-end gap-2">
+      {pkg.is_approved ? (
+        <Button
+          variant="primary"
+          onClick={() => onRender(pkg.id)}
+          disabled={rendering}
+          title="Synthesize narration, generate images, render mp4"
         >
-          {generating ? "Generating…" : note ? "Regenerate with note" : "Regenerate"}
-        </button>
-        {generating && generateStage && (
-          <span className="text-xs opacity-70">{generateStage}</span>
-        )}
-      </div>
-    </section>
+          {rendering ? `Rendering… ${renderStage ?? ""}`.trim() : "Render Video"}
+        </Button>
+      ) : (
+        <Button
+          variant="ok"
+          onClick={() => onApprove(pkg.id)}
+          disabled={approving}
+        >
+          {approving ? "Approving…" : "Approve"}
+        </Button>
+      )}
+      {pkg.needs_rerender && pkg.is_approved && (
+        <span className="font-mono text-[10.5px] uppercase tracking-[0.1em] text-[oklch(82%_0.15_85)]">
+          needs re-render
+        </span>
+      )}
+    </div>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Package field editors — PATCH /packages/{id} for hand-edits without a
-// full regenerate. Edits to `script` and `visual_prompts` flip the
-// package's `needs_rerender` flag on the server; the book status/UI
-// already reacts to that.
+// Script tab — editable
 // ---------------------------------------------------------------------------
 
-async function patchPackage(
-  id: number,
-  body: Record<string, unknown>,
-): Promise<void> {
+async function patchPackage(id: number, body: Record<string, unknown>) {
   await apiFetch(`/packages/${id}`, {
     method: "PATCH",
     body: JSON.stringify(body),
   });
 }
 
-function EditableScriptSection({
+function EditableScript({
   pkg,
   onRefresh,
 }: {
   pkg: Package;
-  onRefresh: () => Promise<void> | void;
+  onRefresh: () => void | Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
   const startEdit = () => {
     setDraft(pkg.script);
-    setError(null);
+    setErr(null);
     setEditing(true);
   };
 
   const save = async () => {
     setSaving(true);
-    setError(null);
+    setErr(null);
     try {
       await patchPackage(pkg.id, { script: draft });
       await onRefresh();
       setEditing(false);
     } catch (e) {
-      setError(String(e));
+      setErr(String(e));
     } finally {
       setSaving(false);
     }
   };
 
+  const wordCount = pkg.narration?.split(/\s+/).filter(Boolean).length ?? 0;
+
   return (
-    <section className="rounded-lg border border-white/10 p-6">
+    <Card>
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="font-medium">90-sec script</h2>
+        <div>
+          <div className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-fg-3">
+            90-second script
+          </div>
+          <div className="mt-1 font-mono text-[11px] text-fg-3">
+            {wordCount} narration words
+          </div>
+        </div>
         <div className="flex items-center gap-2">
-          {!editing && <CopyButton text={pkg.script} />}
-          {!editing ? (
-            <button
-              onClick={startEdit}
-              className="rounded-md bg-white/10 px-3 py-1 text-xs hover:bg-white/20"
-            >
+          {!editing && <CopyBtn text={pkg.script} />}
+          {!editing && (
+            <Button size="sm" onClick={startEdit}>
               Edit
-            </button>
-          ) : null}
+            </Button>
+          )}
         </div>
       </div>
 
       {!editing ? (
-        <p className="whitespace-pre-wrap text-sm leading-relaxed">{pkg.script}</p>
+        <p className="whitespace-pre-wrap font-serif text-base leading-[1.65] text-fg-1">
+          {pkg.script}
+        </p>
       ) : (
         <div className="space-y-3">
           <textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             spellCheck={false}
-            className="h-96 w-full rounded-md border border-white/10 bg-black/40 p-3 font-mono text-xs leading-relaxed"
+            className="h-96 w-full rounded-md border border-hair bg-ink-0 p-3 font-mono text-xs leading-relaxed focus:border-[oklch(72%_0.14_285/0.5)] focus:outline-none"
           />
-          {error && <p className="text-xs text-red-200">Save failed: {error}</p>}
-          <p className="text-xs opacity-60">
-            Script must contain all five section headers (## HOOK, ## WORLD TEASE,
-            ## EMOTIONAL PULL, ## SOCIAL PROOF, ## CTA). Saving flags the package
-            for re-render — narration and the existing mp4 are stale until you
-            click Render.
+          {err && <p className="text-xs text-[oklch(90%_0.12_25)]">{err}</p>}
+          <p className="text-xs text-fg-3">
+            Script must contain all five section headers. Saving flags the
+            package for re-render.
           </p>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={save}
-              disabled={saving}
-              className="rounded-md bg-green-500/20 px-3 py-1.5 text-sm text-green-100 hover:bg-green-500/30 disabled:opacity-50"
-            >
+          <div className="flex gap-2">
+            <Button variant="ok" size="sm" onClick={save} disabled={saving}>
               {saving ? "Saving…" : "Save"}
-            </button>
-            <button
-              onClick={() => setEditing(false)}
-              disabled={saving}
-              className="rounded-md bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20 disabled:opacity-50"
-            >
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       )}
-    </section>
+    </Card>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Hook portfolio with radio + Apply to script
+// ---------------------------------------------------------------------------
 
 function HookPortfolio({
   pkg,
   onRefresh,
 }: {
   pkg: Package;
-  onRefresh: () => Promise<void> | void;
+  onRefresh: () => void | Promise<void>;
 }) {
   const [pendingIndex, setPendingIndex] = useState<number | null>(null);
   const [applying, setApplying] = useState(false);
@@ -790,9 +554,7 @@ function HookPortfolio({
     setApplying(true);
     setApplyError(null);
     try {
-      await apiFetch(`/packages/${pkg.id}/apply-chosen-hook`, {
-        method: "POST",
-      });
+      await apiFetch(`/packages/${pkg.id}/apply-chosen-hook`, { method: "POST" });
       await onRefresh();
     } catch (e) {
       setApplyError(String(e));
@@ -805,8 +567,6 @@ function HookPortfolio({
     pkg.chosen_hook_index !== null
       ? pkg.hook_alternatives?.[pkg.chosen_hook_index]?.text
       : undefined;
-  // The ## HOOK block's first line (pkg.script) — if it matches the chosen
-  // alternative's text the Apply button has nothing useful to do.
   const hookInSync =
     !!chosenText &&
     !!pkg.script &&
@@ -816,104 +576,88 @@ function HookPortfolio({
       .startsWith(chosenText.trim());
 
   return (
-    <Section title="Hook portfolio">
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <p className="flex-1 text-xs opacity-60">
+    <div className="space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <p className="flex-1 text-xs text-fg-3">
           Click an alternative to make it the chosen hook. Swapping only
           updates metadata — use &ldquo;Apply to script&rdquo; to deterministically
-          rewrite the script&apos;s ## HOOK line with the chosen hook text.
+          rewrite the script&apos;s HOOK line with the chosen hook.
         </p>
-        {pkg.hook_alternatives && pkg.hook_alternatives.length > 0 && (
-          <button
-            onClick={applyToScript}
-            disabled={applying || hookInSync || pendingIndex !== null}
-            title={
-              hookInSync
-                ? "Script's ## HOOK already matches the chosen alternative"
-                : "Rewrite the script's ## HOOK block with the chosen hook text"
-            }
-            className="shrink-0 rounded-md bg-white/10 px-3 py-1 text-xs hover:bg-white/20 disabled:opacity-40"
-          >
-            {applying ? "Applying…" : "Apply to script"}
-          </button>
-        )}
+        <Button
+          size="sm"
+          onClick={applyToScript}
+          disabled={applying || hookInSync || pendingIndex !== null}
+          title={
+            hookInSync
+              ? "Script's HOOK already matches the chosen alternative"
+              : "Rewrite script HOOK + narration opening"
+          }
+        >
+          {applying ? "Applying…" : "Apply to script"}
+        </Button>
       </div>
       {applyError && (
-        <p className="mb-3 text-xs text-red-200">Apply failed: {applyError}</p>
+        <p className="text-xs text-[oklch(90%_0.12_25)]">Apply failed: {applyError}</p>
       )}
-      <ul className="space-y-2">
-        {(pkg.hook_alternatives ?? []).map((h, i) => {
-          const isChosen = i === pkg.chosen_hook_index;
-          const isPending = pendingIndex === i;
-          return (
-            <li
-              key={i}
-              className={`flex items-start justify-between gap-3 rounded-md border p-3 ${
-                isChosen
-                  ? "border-green-500/40 bg-green-500/5"
-                  : "border-white/5 bg-white/5"
-              }`}
-            >
-              <label className="flex flex-1 cursor-pointer items-start gap-3 text-sm">
-                <input
-                  type="radio"
-                  name={`hook-choice-${pkg.id}`}
-                  checked={isChosen}
-                  onChange={() => choose(i)}
-                  disabled={pendingIndex !== null}
-                  className="mt-1"
-                />
-                <span className="flex-1">
-                  <span className="mr-2 rounded-full bg-white/10 px-2 py-0.5 text-xs uppercase tracking-wider opacity-70">
-                    {ANGLE_LABEL[h.angle] ?? h.angle}
-                  </span>
-                  {isChosen && (
-                    <span className="mr-2 rounded-full bg-green-500/20 px-2 py-0.5 text-xs text-green-200">
-                      chosen
-                    </span>
-                  )}
-                  {isPending && (
-                    <span className="mr-2 rounded-full bg-white/10 px-2 py-0.5 text-xs opacity-70">
-                      saving…
-                    </span>
-                  )}
-                  <span>{h.text}</span>
+
+      {(pkg.hook_alternatives ?? []).map((h, i) => {
+        const isChosen = i === pkg.chosen_hook_index;
+        const isPending = pendingIndex === i;
+        return (
+          <button
+            key={i}
+            onClick={() => choose(i)}
+            disabled={pendingIndex !== null}
+            className={`w-full rounded-md border p-4 text-left transition-all ${
+              isChosen
+                ? "border-[oklch(72%_0.14_285/0.45)] bg-accent-soft shadow-[0_0_0_1px_oklch(72%_0.14_285/0.15),_0_0_20px_oklch(72%_0.14_285/0.1)]"
+                : "border-hair bg-white/[0.015] hover:border-hair-strong hover:bg-white/[0.025]"
+            }`}
+          >
+            <div className="mb-2 flex items-center gap-2">
+              <Chip variant={isChosen ? "accent" : "plain"} dot={false}>
+                {ANGLE_LABEL[h.angle] ?? h.angle}
+              </Chip>
+              {isChosen && <Chip variant="accent">Chosen</Chip>}
+              {isPending && (
+                <span className="font-mono text-[10.5px] uppercase tracking-[0.08em] text-fg-3">
+                  saving…
                 </span>
-              </label>
-              <CopyButton text={h.text} />
-            </li>
-          );
-        })}
-      </ul>
-    </Section>
+              )}
+            </div>
+            <p className="font-serif text-[18px] leading-[1.35] tracking-[-0.005em] text-fg-0">
+              {h.text}
+            </p>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
-function EditableScenesSection({
+// ---------------------------------------------------------------------------
+// Image prompts — editable per scene
+// ---------------------------------------------------------------------------
+
+function EditableScenes({
   pkg,
   onRefresh,
 }: {
   pkg: Package;
-  onRefresh: () => Promise<void> | void;
+  onRefresh: () => void | Promise<void>;
 }) {
   const scenes = pkg.visual_prompts ?? [];
-  const totalPrompts = scenes.reduce((n, s) => n + scenePrompts(s).length, 0);
-
   return (
-    <Section
-      title={`Image prompts (${totalPrompts} across ${scenes.length} sections)`}
-    >
-      <div className="space-y-3">
-        {scenes.map((scene, i) => (
-          <EditableSceneRow
-            key={i}
-            pkg={pkg}
-            sceneIndex={i}
-            onRefresh={onRefresh}
-          />
-        ))}
-      </div>
-    </Section>
+    <div className="space-y-3">
+      {scenes.map((_, i) => (
+        <EditableSceneRow
+          key={i}
+          pkg={pkg}
+          sceneIndex={i}
+          onRefresh={onRefresh}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -924,87 +668,87 @@ function EditableSceneRow({
 }: {
   pkg: Package;
   sceneIndex: number;
-  onRefresh: () => Promise<void> | void;
+  onRefresh: () => void | Promise<void>;
 }) {
   const scene = (pkg.visual_prompts ?? [])[sceneIndex];
   const prompts = scenePrompts(scene);
   const sectionKey = scene.section ?? scene.label ?? "";
+  const label = SECTION_LABEL[sectionKey] ?? sectionKey;
 
   const [editing, setEditing] = useState(false);
   const [drafts, setDrafts] = useState<string[]>(prompts);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
   const startEdit = () => {
     setDrafts(prompts);
-    setError(null);
+    setErr(null);
     setEditing(true);
   };
 
   const save = async () => {
     const cleaned = drafts.map((p) => p.trim()).filter((p) => p.length > 0);
     if (cleaned.length === 0) {
-      setError("At least one prompt is required.");
+      setErr("At least one prompt is required.");
       return;
     }
     const allScenes = (pkg.visual_prompts ?? []).map((s, i) =>
-      i === sceneIndex
-        ? { ...s, prompts: cleaned, prompt: undefined }
-        : s,
+      i === sceneIndex ? { ...s, prompts: cleaned, prompt: undefined } : s,
     );
     setSaving(true);
-    setError(null);
+    setErr(null);
     try {
       await patchPackage(pkg.id, { visual_prompts: allScenes });
       await onRefresh();
       setEditing(false);
     } catch (e) {
-      setError(String(e));
+      setErr(String(e));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div className="rounded-md border border-white/5 bg-white/5 p-3">
-      <div className="mb-2 flex items-center justify-between gap-2">
-        <div className="text-xs opacity-60">
-          <span className="mr-2 rounded-full bg-white/10 px-2 py-0.5">
-            {SECTION_LABEL[sectionKey] ?? sectionKey}
-          </span>
+    <Card>
+      <div className="mb-3 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <Chip variant="plain" dot={false}>
+            {label}
+          </Chip>
           {prompts.length > 1 && (
-            <span className="mr-2 rounded-full bg-emerald-500/20 px-2 py-0.5 text-emerald-200">
+            <Chip variant="ember" dot={false}>
               {prompts.length} images
-            </span>
+            </Chip>
           )}
-          {scene.focus && <span>{scene.focus}</span>}
+          {scene.focus && (
+            <span className="text-xs text-fg-3">{scene.focus}</span>
+          )}
         </div>
         {!editing && (
-          <button
-            onClick={startEdit}
-            className="rounded-md bg-white/10 px-2 py-1 text-xs hover:bg-white/20"
-          >
+          <Button size="sm" onClick={startEdit}>
             Edit
-          </button>
+          </Button>
         )}
       </div>
 
       {!editing ? (
-        <div className="space-y-2">
-          {prompts.map((prompt, j) => (
-            <div
-              key={j}
-              className="flex items-start justify-between gap-3 text-sm"
-            >
-              <div className="flex-1 border-l border-white/10 pl-3">
-                {prompts.length > 1 && (
-                  <span className="mr-2 text-xs opacity-40">#{j + 1}</span>
-                )}
-                {prompt}
+        <div className="grid grid-cols-[88px_1fr] gap-4">
+          <SceneThumb sectionLabel={label} index={sceneIndex + 1} />
+          <div className="space-y-2">
+            {prompts.map((prompt, j) => (
+              <div key={j} className="flex items-start justify-between gap-3 text-sm text-fg-1">
+                <div className="flex-1 border-l border-hair pl-3 leading-relaxed">
+                  {prompts.length > 1 && (
+                    <span className="mr-2 font-mono text-[10px] text-fg-4">
+                      #{j + 1}
+                    </span>
+                  )}
+                  {prompt}
+                </div>
+                <CopyBtn text={prompt} />
               </div>
-              <CopyButton text={prompt} />
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       ) : (
         <div className="space-y-2">
@@ -1018,74 +762,143 @@ function EditableSceneRow({
                 )
               }
               spellCheck={false}
-              className="h-20 w-full rounded-md border border-white/10 bg-black/40 p-2 font-mono text-xs leading-relaxed"
+              className="h-20 w-full rounded-md border border-hair bg-ink-0 p-2 font-mono text-xs leading-relaxed focus:border-[oklch(72%_0.14_285/0.5)] focus:outline-none"
             />
           ))}
           <div className="flex items-center gap-2">
-            <button
-              onClick={() =>
-                setDrafts((ds) => [...ds, ""])
-              }
-              className="rounded-md bg-white/10 px-2 py-1 text-xs hover:bg-white/20"
-            >
+            <Button size="sm" variant="ghost" onClick={() => setDrafts((ds) => [...ds, ""])}>
               + prompt
-            </button>
+            </Button>
             {drafts.length > 1 && (
-              <button
+              <Button
+                size="sm"
+                variant="ghost"
                 onClick={() => setDrafts((ds) => ds.slice(0, -1))}
-                className="rounded-md bg-white/10 px-2 py-1 text-xs hover:bg-white/20"
               >
                 − prompt
-              </button>
+              </Button>
             )}
           </div>
-          {error && <p className="text-xs text-red-200">{error}</p>}
-          <p className="text-xs opacity-60">
-            Saving re-flags the package for render.
-          </p>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={save}
-              disabled={saving}
-              className="rounded-md bg-green-500/20 px-3 py-1 text-xs text-green-100 hover:bg-green-500/30 disabled:opacity-50"
-            >
+          {err && <p className="text-xs text-[oklch(90%_0.12_25)]">{err}</p>}
+          <div className="flex gap-2">
+            <Button variant="ok" size="sm" onClick={save} disabled={saving}>
               {saving ? "Saving…" : "Save"}
-            </button>
-            <button
-              onClick={() => setEditing(false)}
-              disabled={saving}
-              className="rounded-md bg-white/10 px-3 py-1 text-xs hover:bg-white/20 disabled:opacity-50"
-            >
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
+      )}
+    </Card>
+  );
+}
+
+function SceneThumb({ sectionLabel, index }: { sectionLabel: string; index: number }) {
+  return (
+    <div
+      className="relative grid aspect-[9/16] place-items-center overflow-hidden rounded-[4px]"
+      style={{
+        background:
+          "linear-gradient(135deg, oklch(25% 0.04 280), oklch(18% 0.02 260))",
+      }}
+    >
+      <div
+        className="absolute inset-0"
+        style={{
+          background:
+            "repeating-linear-gradient(45deg, transparent 0, transparent 8px, oklch(100% 0 0 / 0.02) 8px, oklch(100% 0 0 / 0.02) 9px)",
+        }}
+      />
+      <span className="relative font-mono text-[9.5px] uppercase tracking-[0.14em] text-fg-3">
+        {sectionLabel} · {index}
+      </span>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Narration (read-only, with captions preview)
+// ---------------------------------------------------------------------------
+
+function NarrationView({ pkg }: { pkg: Package }) {
+  return (
+    <Card>
+      <div className="mb-3 flex items-center justify-between">
+        <div className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-fg-3">
+          TTS-ready narration
+        </div>
+        <CopyBtn text={pkg.narration} />
+      </div>
+      <p className="whitespace-pre-wrap font-serif text-[17px] leading-[1.55] text-fg-1">
+        {pkg.narration}
+      </p>
+      {pkg.captions && pkg.captions.length > 0 && (
+        <CaptionsPreview captions={pkg.captions} />
+      )}
+    </Card>
+  );
+}
+
+function CaptionsPreview({ captions }: { captions: CaptionWord[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const duration = captions[captions.length - 1]?.end ?? 0;
+  const preview = captions.slice(0, 14).map((c) => c.word).join(" ");
+  return (
+    <div className="mt-4 rounded-md border border-hair bg-white/[0.02] p-3 text-xs">
+      <div className="mb-2 flex items-center justify-between">
+        <div className="font-mono text-fg-3">
+          {captions.length} words · {duration.toFixed(1)}s
+        </div>
+        <Button size="sm" variant="ghost" onClick={() => setExpanded((v) => !v)}>
+          {expanded ? "Collapse" : "Show all"}
+        </Button>
+      </div>
+      {expanded ? (
+        <ol className="max-h-64 space-y-0.5 overflow-y-auto font-mono text-[11px] text-fg-2">
+          {captions.map((c, i) => (
+            <li key={i}>
+              <span className="mr-2 inline-block w-16 text-fg-4 tabular-nums">
+                {c.start.toFixed(2)}s
+              </span>
+              {c.word}
+            </li>
+          ))}
+        </ol>
+      ) : (
+        <p className="italic text-fg-3">
+          {preview}
+          {captions.length > 14 ? "…" : ""}
+        </p>
       )}
     </div>
   );
 }
 
-function EditablePlatformMetaSection({
+// ---------------------------------------------------------------------------
+// Platform meta — editable per card
+// ---------------------------------------------------------------------------
+
+function EditablePlatformMeta({
   pkg,
   onRefresh,
 }: {
   pkg: Package;
-  onRefresh: () => Promise<void> | void;
+  onRefresh: () => void | Promise<void>;
 }) {
   return (
-    <Section title="Per-platform meta">
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        {PLATFORMS.map(({ key, label }) => (
-          <EditableMetaCard
-            key={key}
-            pkg={pkg}
-            platformKey={key}
-            platformLabel={label}
-            onRefresh={onRefresh}
-          />
-        ))}
-      </div>
-    </Section>
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+      {PLATFORMS.map(({ key, glyph, label }) => (
+        <EditableMetaCard
+          key={key}
+          pkg={pkg}
+          platformKey={key}
+          platformLabel={label}
+          glyph={glyph}
+          onRefresh={onRefresh}
+        />
+      ))}
+    </div>
   );
 }
 
@@ -1093,12 +906,14 @@ function EditableMetaCard({
   pkg,
   platformKey,
   platformLabel,
+  glyph,
   onRefresh,
 }: {
   pkg: Package;
   platformKey: string;
   platformLabel: string;
-  onRefresh: () => Promise<void> | void;
+  glyph: string;
+  onRefresh: () => void | Promise<void>;
 }) {
   const currentTitle = pkg.titles?.[platformKey] ?? "";
   const currentTags = pkg.hashtags?.[platformKey] ?? [];
@@ -1108,49 +923,46 @@ function EditableMetaCard({
   const [titleDraft, setTitleDraft] = useState(currentTitle);
   const [tagsDraft, setTagsDraft] = useState(currentTagStr);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
 
   const startEdit = () => {
     setTitleDraft(currentTitle);
     setTagsDraft(currentTagStr);
-    setError(null);
+    setErr(null);
     setEditing(true);
   };
 
   const save = async () => {
-    const nextTitles = { ...(pkg.titles ?? {}), [platformKey]: titleDraft };
-    const nextTags = tagsDraft
-      .split(/\s+/)
-      .map((t) => t.trim())
-      .filter((t) => t.length > 0);
-    const nextHashtags = { ...(pkg.hashtags ?? {}), [platformKey]: nextTags };
+    const nextTags = tagsDraft.split(/\s+/).map((t) => t.trim()).filter(Boolean);
     setSaving(true);
-    setError(null);
+    setErr(null);
     try {
       await patchPackage(pkg.id, {
-        titles: nextTitles,
-        hashtags: nextHashtags,
+        titles: { ...(pkg.titles ?? {}), [platformKey]: titleDraft },
+        hashtags: { ...(pkg.hashtags ?? {}), [platformKey]: nextTags },
       });
       await onRefresh();
       setEditing(false);
     } catch (e) {
-      setError(String(e));
+      setErr(String(e));
     } finally {
       setSaving(false);
     }
   };
 
   return (
-    <div className="rounded-md border border-white/5 bg-white/5 p-4">
+    <Card>
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="text-sm font-medium">{platformLabel}</h3>
+        <div className="flex items-center gap-2.5">
+          <PlatformGlyph glyph={glyph} />
+          <h4 className="font-mono text-xs uppercase tracking-[0.1em] text-fg-2">
+            {platformLabel}
+          </h4>
+        </div>
         {!editing && (
-          <button
-            onClick={startEdit}
-            className="rounded-md bg-white/10 px-2 py-1 text-xs hover:bg-white/20"
-          >
+          <Button size="sm" onClick={startEdit}>
             Edit
-          </button>
+          </Button>
         )}
       </div>
 
@@ -1158,63 +970,257 @@ function EditableMetaCard({
         <>
           <div className="mb-3">
             <div className="mb-1 flex items-center justify-between">
-              <span className="text-xs opacity-60">Title</span>
-              <CopyButton text={currentTitle || "—"} />
+              <span className="text-[10.5px] text-fg-3">Title</span>
+              <CopyBtn text={currentTitle} />
             </div>
-            <p className="text-sm">{currentTitle || "—"}</p>
+            <p className="text-sm text-fg-1">{currentTitle || "—"}</p>
           </div>
           <div>
             <div className="mb-1 flex items-center justify-between">
-              <span className="text-xs opacity-60">
+              <span className="text-[10.5px] text-fg-3">
                 Hashtags ({currentTags.length})
               </span>
-              <CopyButton text={currentTagStr} />
+              <CopyBtn text={currentTagStr} />
             </div>
-            <p className="text-sm opacity-80">{currentTagStr || "—"}</p>
+            <div className="flex flex-wrap gap-1.5">
+              {currentTags.length === 0 ? (
+                <span className="text-sm text-fg-3">—</span>
+              ) : (
+                currentTags.map((t, i) => (
+                  <span key={i} className="font-mono text-[11px] text-fg-2">
+                    {t}
+                  </span>
+                ))
+              )}
+            </div>
           </div>
         </>
       ) : (
         <div className="space-y-3">
           <div>
-            <label className="mb-1 block text-xs opacity-60">Title</label>
+            <label className="mb-1 block text-[10.5px] text-fg-3">Title</label>
             <input
               value={titleDraft}
               onChange={(e) => setTitleDraft(e.target.value)}
-              className="w-full rounded-md border border-white/10 bg-black/40 p-2 text-sm"
+              className="w-full rounded-md border border-hair bg-ink-0 p-2 text-sm focus:border-[oklch(72%_0.14_285/0.5)] focus:outline-none"
             />
           </div>
           <div>
-            <label className="mb-1 block text-xs opacity-60">
+            <label className="mb-1 block text-[10.5px] text-fg-3">
               Hashtags (space-separated)
             </label>
             <textarea
               value={tagsDraft}
               onChange={(e) => setTagsDraft(e.target.value)}
-              className="h-20 w-full rounded-md border border-white/10 bg-black/40 p-2 font-mono text-xs"
+              className="h-20 w-full rounded-md border border-hair bg-ink-0 p-2 font-mono text-xs focus:border-[oklch(72%_0.14_285/0.5)] focus:outline-none"
             />
           </div>
-          {error && <p className="text-xs text-red-200">{error}</p>}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={save}
-              disabled={saving}
-              className="rounded-md bg-green-500/20 px-3 py-1 text-xs text-green-100 hover:bg-green-500/30 disabled:opacity-50"
-            >
+          {err && <p className="text-xs text-[oklch(90%_0.12_25)]">{err}</p>}
+          <div className="flex gap-2">
+            <Button variant="ok" size="sm" onClick={save} disabled={saving}>
               {saving ? "Saving…" : "Save"}
-            </button>
-            <button
-              onClick={() => setEditing(false)}
-              disabled={saving}
-              className="rounded-md bg-white/10 px-3 py-1 text-xs hover:bg-white/20 disabled:opacity-50"
-            >
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       )}
+    </Card>
+  );
+}
+
+function PlatformGlyph({ glyph }: { glyph: string }) {
+  return (
+    <div className="grid h-[22px] w-[22px] place-items-center rounded-[5px] bg-white/[0.06] font-mono text-[10px] font-semibold tracking-[0.02em] text-fg-2">
+      {glyph}
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Publish panel (right rail)
+// ---------------------------------------------------------------------------
+
+type PublishStatus =
+  | { external_id: string; published_at: string }
+  | { error: string };
+
+function PublishPanel({
+  pkg,
+  onPublish,
+  publishing,
+  published,
+}: {
+  pkg: Package;
+  onPublish: (id: number, platform: string) => void;
+  publishing: string | null;
+  published: Record<string, PublishStatus>;
+}) {
+  return (
+    <Card className="mb-4 p-0">
+      <div className="p-4">
+        {/* Video frame placeholder */}
+        <div
+          className="relative mb-4 flex aspect-[9/16] items-center justify-center overflow-hidden rounded-md"
+          style={{
+            background:
+              "linear-gradient(180deg, oklch(15% 0.02 260), oklch(8% 0.01 260))",
+            boxShadow: "inset 0 0 0 1px var(--hair)",
+          }}
+        >
+          {pkg.is_approved ? (
+            <video
+              key={pkg.id}
+              src={rendersUrl(pkg.id)}
+              controls
+              playsInline
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <div className="flex flex-col items-center gap-2 text-fg-3">
+              <Play className="h-6 w-6 opacity-60" />
+              <span className="font-mono text-[10.5px] uppercase tracking-[0.14em]">
+                not rendered
+              </span>
+            </div>
+          )}
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background:
+                "repeating-linear-gradient(0deg, transparent 0, transparent 3px, oklch(100% 0 0 / 0.02) 3px, oklch(100% 0 0 / 0.02) 4px)",
+            }}
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          {PUBLISH_TARGETS.map(({ key, glyph, label }) => {
+            const status = published[key];
+            const isPublishing = publishing === key;
+            const done = status && !("error" in status);
+            return (
+              <button
+                key={key}
+                onClick={() => onPublish(pkg.id, key)}
+                disabled={isPublishing || !!done || !pkg.is_approved}
+                className={`flex items-center justify-between gap-2 rounded-md border px-3 py-2.5 text-[13px] transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
+                  done
+                    ? "border-[oklch(78%_0.13_155/0.25)] bg-ok-soft text-[oklch(92%_0.1_155)]"
+                    : "border-hair bg-white/[0.02] text-fg-1 hover:border-hair-strong hover:bg-white/[0.04]"
+                }`}
+              >
+                <span className="flex items-center gap-2.5">
+                  <PlatformGlyph glyph={glyph} />
+                  <span className="truncate">{label}</span>
+                </span>
+                {done ? (
+                  <Check className="h-3.5 w-3.5" />
+                ) : isPublishing ? (
+                  <span className="font-mono text-[10px] text-fg-3">…</span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Revision history (right rail)
+// ---------------------------------------------------------------------------
+
+function RevisionHistory({
+  packages,
+  activeId,
+  onSelect,
+}: {
+  packages: Package[];
+  activeId: number;
+  onSelect: (id: number) => void;
+}) {
+  return (
+    <div>
+      <div className="mb-3 font-mono text-[10.5px] uppercase tracking-[0.14em] text-fg-3">
+        Revision history
+      </div>
+      <div className="space-y-2">
+        {packages.map((p) => {
+          const active = p.id === activeId;
+          return (
+            <button
+              key={p.id}
+              onClick={() => onSelect(p.id)}
+              className={`block w-full rounded-md border p-3 text-left transition-all ${
+                active
+                  ? "border-[oklch(72%_0.14_285/0.35)] bg-accent-soft"
+                  : "border-hair bg-white/[0.02] hover:border-hair-strong hover:bg-white/[0.04]"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[11px] uppercase tracking-[0.08em] text-fg-2">
+                  Rev {p.revision_number}
+                </span>
+                {p.is_approved && <Chip variant="ok">Approved</Chip>}
+              </div>
+              {p.regenerate_note && (
+                <div className="mt-1 line-clamp-2 text-xs italic text-fg-3">
+                  “{p.regenerate_note}”
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Regenerate form
+// ---------------------------------------------------------------------------
+
+function RegenerateForm({
+  note,
+  setNote,
+  onSubmit,
+  generating,
+  generateStage,
+}: {
+  note: string;
+  setNote: (v: string) => void;
+  onSubmit: () => void;
+  generating: boolean;
+  generateStage: string | null;
+}) {
+  return (
+    <Card className="mt-6">
+      <h3 className="mb-3">Regenerate</h3>
+      <textarea
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder='Optional: tell Claude how to change it. "Make the hook darker."'
+        className="mb-3 h-24 w-full rounded-md border border-hair bg-transparent p-3 text-sm focus:border-[oklch(72%_0.14_285/0.5)] focus:outline-none"
+      />
+      <div className="flex items-center gap-3">
+        <Button variant="primary" onClick={onSubmit} disabled={generating}>
+          {generating ? "Generating…" : note ? "Regenerate with note" : "Regenerate"}
+        </Button>
+        {generating && generateStage && (
+          <span className="font-mono text-[11px] text-fg-3">
+            {generateStage}
+          </span>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Dossier editor (JSON, preserved from PR #8)
+// ---------------------------------------------------------------------------
 
 function DossierEditor({
   bookId,
@@ -1236,12 +1242,6 @@ function DossierEditor({
     setParseError(null);
     setSaveError(null);
     setEditing(true);
-  };
-
-  const cancel = () => {
-    setEditing(false);
-    setParseError(null);
-    setSaveError(null);
   };
 
   const save = async () => {
@@ -1291,32 +1291,31 @@ function DossierEditor({
   };
 
   return (
-    <section className="mb-6 rounded-lg border border-white/10 p-6">
-      <div className="mb-3 flex items-center justify-between gap-3">
+    <Card className="mb-6">
+      <div className="mb-3 flex items-start justify-between gap-3">
         <div>
-          <h2 className="font-medium">Book dossier</h2>
-          <p className="mt-1 text-xs opacity-60">
-            Structured research threaded into every generation. Edit to steer the
-            hooks, script, and scene prompts toward specific motifs.
+          <div className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-fg-3">
+            Book dossier
+          </div>
+          <p className="mt-1 text-xs text-fg-3">
+            Structured research threaded into every generation.
           </p>
         </div>
         {!editing && (
           <div className="flex items-center gap-2">
-            <button
-              onClick={startEdit}
-              className="rounded-md bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20"
-            >
+            <Button size="sm" onClick={startEdit}>
               {dossier ? "Edit" : "Write"}
-            </button>
+            </Button>
             {dossier && (
-              <button
+              <Button
+                size="sm"
+                variant="ghost"
                 onClick={clear}
                 disabled={saving}
-                className="rounded-md bg-white/5 px-3 py-1.5 text-sm opacity-70 hover:bg-white/10 hover:opacity-100 disabled:opacity-40"
-                title="Clear — next /generate will rebuild via the LLM"
+                title="Clear — next /generate rebuilds via the LLM"
               >
                 Clear
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -1324,12 +1323,12 @@ function DossierEditor({
 
       {!editing ? (
         dossier ? (
-          <pre className="max-h-96 overflow-auto rounded-md bg-black/40 p-3 text-xs leading-relaxed">
+          <pre className="max-h-96 overflow-auto rounded-md bg-ink-0 p-3 font-mono text-xs leading-relaxed text-fg-1">
             {JSON.stringify(dossier, null, 2)}
           </pre>
         ) : (
-          <p className="text-xs italic opacity-60">
-            No dossier yet — it will be built on the first /generate call.
+          <p className="text-xs italic text-fg-3">
+            No dossier yet — it&apos;ll be built on the first /generate call.
           </p>
         )
       ) : (
@@ -1341,74 +1340,48 @@ function DossierEditor({
               setParseError(null);
             }}
             spellCheck={false}
-            className="h-80 w-full rounded-md border border-white/10 bg-black/40 p-3 font-mono text-xs leading-relaxed"
+            className="h-80 w-full rounded-md border border-hair bg-ink-0 p-3 font-mono text-xs leading-relaxed focus:border-[oklch(72%_0.14_285/0.5)] focus:outline-none"
           />
-          {parseError && (
-            <p className="text-xs text-red-200">{parseError}</p>
-          )}
+          {parseError && <p className="text-xs text-[oklch(90%_0.12_25)]">{parseError}</p>}
           {saveError && (
-            <p className="text-xs text-red-200">Save failed: {saveError}</p>
+            <p className="text-xs text-[oklch(90%_0.12_25)]">Save failed: {saveError}</p>
           )}
-          <div className="flex items-center gap-2">
-            <button
-              onClick={save}
-              disabled={saving}
-              className="rounded-md bg-green-500/20 px-3 py-1.5 text-sm text-green-100 hover:bg-green-500/30 disabled:opacity-50"
-            >
+          <div className="flex gap-2">
+            <Button variant="ok" size="sm" onClick={save} disabled={saving}>
               {saving ? "Saving…" : "Save"}
-            </button>
-            <button
-              onClick={cancel}
-              disabled={saving}
-              className="rounded-md bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20 disabled:opacity-50"
-            >
+            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
               Cancel
-            </button>
+            </Button>
           </div>
         </div>
       )}
-    </section>
+    </Card>
   );
 }
 
-function RevisionHistory({
-  packages,
-  activeId,
-  onSelect,
-}: {
-  packages: Package[];
-  activeId: number | null;
-  onSelect: (id: number) => void;
-}) {
+// ---------------------------------------------------------------------------
+// Copy button
+// ---------------------------------------------------------------------------
+
+function CopyBtn({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const onClick = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* clipboard may be blocked */
+    }
+  };
   return (
-    <div className="lg:sticky lg:top-8">
-      <h3 className="mb-3 text-sm font-medium opacity-70">History</h3>
-      <ul className="space-y-1">
-        {packages.map((p) => (
-          <li key={p.id}>
-            <button
-              onClick={() => onSelect(p.id)}
-              className={`w-full rounded-md px-3 py-2 text-left text-sm transition ${
-                p.id === activeId ? "bg-white/10" : "hover:bg-white/5"
-              }`}
-            >
-              <div className="flex items-center justify-between">
-                <span>Rev {p.revision_number}</span>
-                {p.is_approved && (
-                  <span className="rounded-full bg-green-500/20 px-1.5 py-0.5 text-xs text-green-200">
-                    ✓
-                  </span>
-                )}
-              </div>
-              {p.regenerate_note && (
-                <div className="mt-1 truncate text-xs opacity-60">
-                  &ldquo;{p.regenerate_note}&rdquo;
-                </div>
-              )}
-            </button>
-          </li>
-        ))}
-      </ul>
-    </div>
+    <button
+      onClick={onClick}
+      className="grid h-[26px] w-[26px] place-items-center rounded-md border border-hair text-fg-3 transition-colors hover:border-hair-strong hover:text-fg-1"
+      title="Copy"
+    >
+      {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+    </button>
   );
 }
