@@ -39,6 +39,14 @@ class Settings(BaseSettings):
     music_dir: str = "./backend/assets/music"
     remotion_dir: str = "./remotion"
 
+    # ---- Renderer backend ----
+    # `remotion` (default in dev) assembles the mp4 via `npx remotion
+    # render` for rich per-tone compositions; requires Node + Chromium.
+    # `ffmpeg` uses the bundled ffmpeg directly — no Node dependency,
+    # simpler visuals. The desktop build defaults to `ffmpeg`; Remotion
+    # is available as an opt-in once the user installs Node.
+    renderer_backend: str = "remotion"
+
     @field_validator("renders_dir", "music_dir", "remotion_dir")
     @classmethod
     def _anchor_path(cls, v: str) -> str:

@@ -28,7 +28,7 @@ from sqlalchemy.orm import object_session
 from app.clock import utc_now
 from app.config import settings
 from app.observability import log_call
-from app.services import images, tts, whisper
+from app.services import images, simple_renderer, tts, whisper
 
 
 def narration_hash(text: str) -> str:
@@ -197,52 +197,73 @@ def _render_inner(package, book, scenes_in, tone, work_dir, ctx, composition, on
     # 5. Music (optional)
     music_path = pick_music_track(tone)
 
-    # 6. Remotion props
-    # Remotion needs http:// URLs for assets. Serve them from the backend's
-    # /renders static mount.
-    base_url = f"http://127.0.0.1:8000/renders/{package.id}"
-
+    # 6. Assembly — two backends share the per-scene inputs computed above.
     # Flatten paths to match flat_durations.
     flat_paths: list[Path] = [p for group in scene_paths for p in group]
-    # Parallel flat list of the owning scene per image, for section/label tagging.
-    flat_scenes: list[dict] = []
-    for scene in scenes_in:
-        n = max(len(scene.get("prompts") or [""]), 1)
-        flat_scenes.extend([scene] * n)
 
-    scene_props = []
-    for scene, path, duration in zip(flat_scenes, flat_paths, flat_durations):
-        sp: dict = {
-            "image": f"{base_url}/{path.name}",
-            "durationSeconds": duration,
-        }
-        if "section" in scene:
-            sp["section"] = scene["section"]
-        if "label" in scene:
-            sp["label"] = scene["label"]
-        scene_props.append(sp)
-
-    props: dict = {
-        "tone": tone,
-        "title": book.title,
-        "author": book.author,
-        "cardSeconds": card_seconds,
-        "scenes": scene_props,
-        "audio": f"{base_url}/narration.mp3",
-        "captions": captions,
-        "durationSeconds": total_seconds,
-    }
-    if music_path is not None:
-        props["music"] = str(music_path.resolve())
-
-    props_path = work_dir / "props.json"
-    props_path.write_text(json.dumps(props, indent=2))
-
-    # 7. Render
-    on_progress(f"Step 4/4: assembling video ({composition})")
     out_mp4 = work_dir / "out.mp4"
-    with log_call("renderer.remotion_cli", package_id=package.id, composition=composition):
-        _run_remotion(props_path, out_mp4, composition)
+    backend = (settings.renderer_backend or "remotion").lower()
+    on_progress(f"Step 4/4: assembling video ({backend}:{composition})")
+    ctx["renderer_backend"] = backend
+
+    if backend == "ffmpeg":
+        # The desktop default. No Node/Chromium required; loses tone
+        # intro/outro cards (see simple_renderer module docstring).
+        with log_call("renderer.simple_ffmpeg", package_id=package.id):
+            simple_renderer.render_mp4(
+                scene_images=flat_paths,
+                scene_durations=flat_durations,
+                narration_mp3=narration_path,
+                out_mp4=out_mp4,
+                captions=captions,
+                music_path=music_path,
+            )
+    else:
+        # Remotion needs http:// URLs for assets. Serve them from the
+        # backend's /renders static mount.
+        base_url = f"http://127.0.0.1:8000/renders/{package.id}"
+
+        # Parallel flat list of the owning scene per image, for section/label tagging.
+        flat_scenes: list[dict] = []
+        for scene in scenes_in:
+            n = max(len(scene.get("prompts") or [""]), 1)
+            flat_scenes.extend([scene] * n)
+
+        scene_props = []
+        for scene, path, duration in zip(flat_scenes, flat_paths, flat_durations):
+            sp: dict = {
+                "image": f"{base_url}/{path.name}",
+                "durationSeconds": duration,
+            }
+            if "section" in scene:
+                sp["section"] = scene["section"]
+            if "label" in scene:
+                sp["label"] = scene["label"]
+            scene_props.append(sp)
+
+        props: dict = {
+            "tone": tone,
+            "title": book.title,
+            "author": book.author,
+            "cardSeconds": card_seconds,
+            "scenes": scene_props,
+            "audio": f"{base_url}/narration.mp3",
+            "captions": captions,
+            "durationSeconds": total_seconds,
+        }
+        if music_path is not None:
+            props["music"] = str(music_path.resolve())
+
+        props_path = work_dir / "props.json"
+        props_path.write_text(json.dumps(props, indent=2))
+
+        with log_call("renderer.remotion_cli", package_id=package.id, composition=composition):
+            _run_remotion(props_path, out_mp4, composition)
+
+    # simple_renderer produces narration-length output (no tone cards),
+    # so the reported duration matches what's actually on disk.
+    if backend == "ffmpeg":
+        total_seconds = narration_seconds
 
     size_bytes = out_mp4.stat().st_size
     ctx["size_mb"] = round(size_bytes / 1_048_576, 2)
