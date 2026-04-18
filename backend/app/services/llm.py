@@ -617,8 +617,28 @@ def generate_hooks(
         f"{_dossier_block(dossier)}"
     )
     out = dispatch("script", _HOOKS_SYSTEM, user, "record_hooks", _HOOKS_SCHEMA)
-    # Clamp the index in case the model hallucinates past the array length.
-    out["chosen_index"] = max(0, min(2, int(out["chosen_index"])))
+    # Claude occasionally ignores the items schema and returns bare strings
+    # like `alternatives: ["hook1", "hook2", "hook3"]` instead of the
+    # `[{angle, text}]` shape the pipeline expects. Coerce to the contract
+    # so downstream code doesn't crash on a legitimate-looking generation.
+    raw_alts = out.get("alternatives") or []
+    normalized: list[dict] = []
+    for i, alt in enumerate(raw_alts):
+        if isinstance(alt, dict):
+            angle = alt.get("angle") or HOOK_ANGLES[i % len(HOOK_ANGLES)]
+            text = alt.get("text") or ""
+        elif isinstance(alt, str):
+            angle = HOOK_ANGLES[i % len(HOOK_ANGLES)]
+            text = alt
+        else:
+            continue
+        if text.strip():
+            normalized.append({"angle": angle, "text": text})
+    out["alternatives"] = normalized
+    # Clamp the index — also handles the case where normalization dropped
+    # malformed entries and the list is now shorter than chosen_index.
+    upper = max(0, len(normalized) - 1)
+    out["chosen_index"] = max(0, min(upper, int(out.get("chosen_index", 0) or 0)))
     return out
 
 

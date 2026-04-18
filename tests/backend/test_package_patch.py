@@ -248,3 +248,47 @@ def test_patch_empty_payload_is_noop(client, package_id):
     """Sending {} should be valid — just a no-op commit."""
     res = client.patch(f"/packages/{package_id}", json={})
     assert res.status_code == 200
+
+
+# --- POST /packages/{id}/apply-chosen-hook --------------------------------
+
+
+def test_apply_chosen_hook_rewrites_hook_section(client, package_id):
+    # Swap chosen_hook_index to 0 (curiosity hook), then apply.
+    client.patch(f"/packages/{package_id}", json={"chosen_hook_index": 0})
+
+    res = client.post(f"/packages/{package_id}/apply-chosen-hook")
+    assert res.status_code == 200
+
+    pkg = _pkg(client, package_id=package_id)
+    expected_hook_text = FAKE_HOOKS["alternatives"][0]["text"]
+    assert f"## HOOK\n{expected_hook_text}" in pkg["script"]
+    # Other sections preserved.
+    assert "## WORLD TEASE\nA swamp-town mystery." in pkg["script"]
+    assert "## CTA\nLink in bio to grab it." in pkg["script"]
+    # Re-render flag flipped.
+    assert pkg["needs_rerender"] is True
+
+
+def test_apply_chosen_hook_404_on_missing_package(client):
+    assert client.post("/packages/99999/apply-chosen-hook").status_code == 404
+
+
+def test_apply_chosen_hook_400_when_script_missing_sections(client, package_id):
+    # Wreck the script: remove the ## CTA block.
+    client.patch(
+        f"/packages/{package_id}",
+        json={"chosen_hook_index": 0},
+    )
+    from app import db as db_module
+    from app.models import ContentPackage
+
+    session = db_module.SessionLocal()
+    pkg_row = session.get(ContentPackage, package_id)
+    pkg_row.script = "## HOOK\nx\n\n## WORLD TEASE\ny"
+    session.commit()
+    session.close()
+
+    res = client.post(f"/packages/{package_id}/apply-chosen-hook")
+    assert res.status_code == 400
+    assert "missing" in res.json()["detail"].lower()
