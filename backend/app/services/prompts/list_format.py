@@ -67,6 +67,10 @@ and a 2-3 color palette. All prompts target 9:16 vertical framing.
 Each prompt should feel distinct so the video has visual variety across
 the list. Forbidden: "fantasy vibes", "mysterious", "epic", "captivating".
 
+When a "Visual preset" block appears at the end of the user message, its
+palette / lens / lighting / composition are the baseline for every scene —
+each book's dossier overrides individual values on conflict.
+
 Also include an `intro` scene (atmospheric, genre-spanning) and a `cta`
 scene (warm, inviting, books-on-shelf aesthetic) — each with 1 prompt.
 

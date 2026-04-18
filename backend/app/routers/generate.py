@@ -595,10 +595,16 @@ def _pipeline_list(
             )
 
     set_progress("Stage 2/3: scene prompts per book")
+    from app.services import genre_presets
+
     scene_pkg = llm.dispatch(
         "script",
         bundle.scene_prompts.system,
-        f"Books in the list:\n{user_text}\n\nScript:\n{script_pkg['script']}",
+        (
+            f"Books in the list:\n{user_text}\n\n"
+            f"Script:\n{script_pkg['script']}"
+            f"{genre_presets.preset_block(genre)}"
+        ),
         bundle.scene_prompts.tool_name,
         bundle.scene_prompts.schema,
     )
