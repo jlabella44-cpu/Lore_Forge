@@ -24,6 +24,41 @@ from app.config import settings
 from app.observability import log_call
 from app.services import cost
 
+
+def _profile_prompt(stage: str, default: str) -> str:
+    """Read `stage` from the active profile's prompts column, rendering
+    through Jinja2 for variable substitution. Falls back to `default`
+    when no profile is active, the stage key is missing, or anything
+    else goes wrong — the module constants stay authoritative in the
+    dev-without-DB workflows (e.g. LLM service unit tests that don't
+    spin up SessionLocal).
+
+    Opens its own short-lived session so callers don't have to thread
+    a db handle through every LLM helper. The lookup is a single
+    indexed SELECT against the profiles table; the cost is in the
+    noise compared to an LLM call.
+    """
+    try:
+        from app import db as db_module
+        from app.services import prompt_renderer, profiles as profile_service
+    except Exception:
+        return default
+
+    try:
+        # Read SessionLocal via attribute access (not `from ... import
+        # SessionLocal`) so pytest fixtures that swap
+        # `db_module.SessionLocal` to the test engine take effect.
+        with db_module.SessionLocal() as db:
+            active = profile_service.get_active(db)
+            if active is None:
+                return default
+            template = (active.prompts or {}).get(stage)
+            if not template:
+                return default
+            return prompt_renderer.render(template, {})
+    except Exception:
+        return default
+
 SECTIONS: list[str] = [
     "hook",
     "world_tease",
@@ -616,7 +651,8 @@ def generate_hooks(
         f"Description: {description or '(none provided)'}"
         f"{_dossier_block(dossier)}"
     )
-    out = dispatch("script", _HOOKS_SYSTEM, user, "record_hooks", _HOOKS_SCHEMA)
+    system = _profile_prompt("hook_system", _HOOKS_SYSTEM)
+    out = dispatch("script", system, user, "record_hooks", _HOOKS_SCHEMA)
     # Claude occasionally ignores the items schema and returns bare strings
     # like `alternatives: ["hook1", "hook2", "hook3"]` instead of the
     # `[{angle, text}]` shape the pipeline expects. Coerce to the contract
@@ -669,8 +705,9 @@ def generate_script(
             "Revision note — please address this in the new draft:\n" + note
         )
     user = "\n".join(lines) + _dossier_block(dossier)
+    system = _profile_prompt("script_system", _SCRIPT_SYSTEM)
     return dispatch(
-        "script", _SCRIPT_SYSTEM, user, "record_script", _SCRIPT_SCHEMA
+        "script", system, user, "record_script", _SCRIPT_SCHEMA
     )
 
 
@@ -696,7 +733,7 @@ def generate_scene_prompts(
     )
     return dispatch(
         "script",
-        _SCENE_PROMPTS_SYSTEM,
+        _profile_prompt("scene_prompts_system", _SCENE_PROMPTS_SYSTEM),
         user,
         "record_scene_prompts",
         _SCENE_PROMPTS_SCHEMA,
@@ -706,7 +743,8 @@ def generate_scene_prompts(
 def generate_platform_meta(*, script: str, genre: str) -> dict:
     """Stage 4. Returns {titles: {...}, hashtags: {...}}."""
     user = f"Genre: {genre}\n\nScript:\n{script}"
-    return dispatch("meta", _META_SYSTEM, user, "record_meta", _META_SCHEMA)
+    system = _profile_prompt("meta_system", _META_SYSTEM)
+    return dispatch("meta", system, user, "record_meta", _META_SCHEMA)
 
 
 # ---------------------------------------------------------------------------

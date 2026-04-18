@@ -12,7 +12,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.db import Base
 from app.models.profile import Profile
-from app.services import prompt_renderer
+from app.services import llm, prompt_renderer
 from app.services.prompts import short_hook
 
 
@@ -133,11 +133,14 @@ def test_migration_0012_populates_books_prompts(tmp_path):
             # the current prompts verbatim, otherwise callers that
             # later migrate through prompt_renderer would see a
             # different LLM input than the legacy direct-import path.
+            # Three stages match the prompts/short_hook.py constants.
+            # scene_prompts_system was reconciled by migration 0013 to
+            # the canonical llm.py version (slightly more verbose);
+            # see 0013's module docstring.
             assert prompts["hook_system"] == short_hook.HOOKS_SYSTEM
             assert prompts["script_system"] == short_hook.SCRIPT_SYSTEM
             assert (
-                prompts["scene_prompts_system"]
-                == short_hook.SCENE_PROMPTS_SYSTEM
+                prompts["scene_prompts_system"] == llm._SCENE_PROMPTS_SYSTEM
             )
             assert prompts["meta_system"] == short_hook.META_SYSTEM
 
