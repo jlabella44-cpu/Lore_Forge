@@ -293,6 +293,7 @@ export default function BookReviewPage({
                 onPublish={publish}
                 publishing={publishing}
                 published={published}
+                onRefresh={refresh}
                 costCents={
                   costs?.per_package.find((p) => p.package_id === active.id)
                     ?.cents ?? null
@@ -344,6 +345,7 @@ function PackageView({
   onPublish,
   publishing,
   published,
+  onRefresh,
   costCents,
 }: {
   pkg: Package;
@@ -361,6 +363,7 @@ function PackageView({
   onPublish: (id: number, platform: string) => void;
   publishing: string | null;
   published: Record<string, PublishStatus>;
+  onRefresh: () => Promise<void> | void;
   costCents: number | null;
 }) {
   return (
@@ -482,94 +485,13 @@ function PackageView({
         </div>
       )}
 
-      <Section title="90-sec script" copyText={pkg.script}>
-        <p className="whitespace-pre-wrap text-sm leading-relaxed">{pkg.script}</p>
-      </Section>
+      <EditableScriptSection pkg={pkg} onRefresh={onRefresh} />
 
       {pkg.hook_alternatives && pkg.hook_alternatives.length > 0 && (
-        <Section title="Hook portfolio">
-          <ul className="space-y-2">
-            {pkg.hook_alternatives.map((h, i) => {
-              const isChosen = i === pkg.chosen_hook_index;
-              return (
-                <li
-                  key={i}
-                  className={`flex items-start justify-between gap-3 rounded-md border p-3 ${
-                    isChosen
-                      ? "border-green-500/40 bg-green-500/5"
-                      : "border-white/5 bg-white/5"
-                  }`}
-                >
-                  <div className="flex-1 text-sm">
-                    <span className="mr-2 rounded-full bg-white/10 px-2 py-0.5 text-xs uppercase tracking-wider opacity-70">
-                      {ANGLE_LABEL[h.angle] ?? h.angle}
-                    </span>
-                    {isChosen && (
-                      <span className="mr-2 rounded-full bg-green-500/20 px-2 py-0.5 text-xs text-green-200">
-                        chosen
-                      </span>
-                    )}
-                    <span>{h.text}</span>
-                  </div>
-                  <CopyButton text={h.text} />
-                </li>
-              );
-            })}
-          </ul>
-        </Section>
+        <HookPortfolio pkg={pkg} onRefresh={onRefresh} />
       )}
 
-      <Section
-        title={`Image prompts (${
-          (pkg.visual_prompts ?? []).reduce(
-            (n, s) => n + scenePrompts(s).length,
-            0,
-          )
-        } across ${pkg.visual_prompts?.length ?? 0} sections)`}
-      >
-        <div className="space-y-3">
-          {(pkg.visual_prompts ?? []).map((scene, i) => {
-            const prompts = scenePrompts(scene);
-            const sectionKey = scene.section ?? scene.label ?? "";
-            return (
-              <div
-                key={i}
-                className="rounded-md border border-white/5 bg-white/5 p-3"
-              >
-                <div className="mb-2 text-xs opacity-60">
-                  <span className="mr-2 rounded-full bg-white/10 px-2 py-0.5">
-                    {SECTION_LABEL[sectionKey] ?? sectionKey}
-                  </span>
-                  {prompts.length > 1 && (
-                    <span className="mr-2 rounded-full bg-emerald-500/20 px-2 py-0.5 text-emerald-200">
-                      {prompts.length} images
-                    </span>
-                  )}
-                  {scene.focus && <span>{scene.focus}</span>}
-                </div>
-                <div className="space-y-2">
-                  {prompts.map((prompt, j) => (
-                    <div
-                      key={j}
-                      className="flex items-start justify-between gap-3 text-sm"
-                    >
-                      <div className="flex-1 border-l border-white/10 pl-3">
-                        {prompts.length > 1 && (
-                          <span className="mr-2 text-xs opacity-40">
-                            #{j + 1}
-                          </span>
-                        )}
-                        {prompt}
-                      </div>
-                      <CopyButton text={prompt} />
-                    </div>
-                  ))}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </Section>
+      <EditableScenesSection pkg={pkg} onRefresh={onRefresh} />
 
       <Section title="Narration (TTS-ready)" copyText={pkg.narration}>
         <p className="whitespace-pre-wrap text-sm leading-relaxed">
@@ -580,39 +502,7 @@ function PackageView({
         )}
       </Section>
 
-      <Section title="Per-platform meta">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {PLATFORMS.map(({ key, label }) => {
-            const title = pkg.titles?.[key] ?? "—";
-            const hashtags = pkg.hashtags?.[key] ?? [];
-            const hashtagStr = hashtags.join(" ");
-            return (
-              <div
-                key={key}
-                className="rounded-md border border-white/5 bg-white/5 p-4"
-              >
-                <h3 className="mb-3 text-sm font-medium">{label}</h3>
-                <div className="mb-3">
-                  <div className="mb-1 flex items-center justify-between">
-                    <span className="text-xs opacity-60">Title</span>
-                    <CopyButton text={title} />
-                  </div>
-                  <p className="text-sm">{title}</p>
-                </div>
-                <div>
-                  <div className="mb-1 flex items-center justify-between">
-                    <span className="text-xs opacity-60">
-                      Hashtags ({hashtags.length})
-                    </span>
-                    <CopyButton text={hashtagStr} />
-                  </div>
-                  <p className="text-sm opacity-80">{hashtagStr || "—"}</p>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </Section>
+      <EditablePlatformMetaSection pkg={pkg} onRefresh={onRefresh} />
 
       <Section title="Affiliate links">
         <div className="space-y-2">
@@ -766,6 +656,513 @@ function RegenerateForm({
         )}
       </div>
     </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Package field editors — PATCH /packages/{id} for hand-edits without a
+// full regenerate. Edits to `script` and `visual_prompts` flip the
+// package's `needs_rerender` flag on the server; the book status/UI
+// already reacts to that.
+// ---------------------------------------------------------------------------
+
+async function patchPackage(
+  id: number,
+  body: Record<string, unknown>,
+): Promise<void> {
+  await apiFetch(`/packages/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+}
+
+function EditableScriptSection({
+  pkg,
+  onRefresh,
+}: {
+  pkg: Package;
+  onRefresh: () => Promise<void> | void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const startEdit = () => {
+    setDraft(pkg.script);
+    setError(null);
+    setEditing(true);
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await patchPackage(pkg.id, { script: draft });
+      await onRefresh();
+      setEditing(false);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="rounded-lg border border-white/10 p-6">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="font-medium">90-sec script</h2>
+        <div className="flex items-center gap-2">
+          {!editing && <CopyButton text={pkg.script} />}
+          {!editing ? (
+            <button
+              onClick={startEdit}
+              className="rounded-md bg-white/10 px-3 py-1 text-xs hover:bg-white/20"
+            >
+              Edit
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      {!editing ? (
+        <p className="whitespace-pre-wrap text-sm leading-relaxed">{pkg.script}</p>
+      ) : (
+        <div className="space-y-3">
+          <textarea
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            spellCheck={false}
+            className="h-96 w-full rounded-md border border-white/10 bg-black/40 p-3 font-mono text-xs leading-relaxed"
+          />
+          {error && <p className="text-xs text-red-200">Save failed: {error}</p>}
+          <p className="text-xs opacity-60">
+            Script must contain all five section headers (## HOOK, ## WORLD TEASE,
+            ## EMOTIONAL PULL, ## SOCIAL PROOF, ## CTA). Saving flags the package
+            for re-render — narration and the existing mp4 are stale until you
+            click Render.
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={save}
+              disabled={saving}
+              className="rounded-md bg-green-500/20 px-3 py-1.5 text-sm text-green-100 hover:bg-green-500/30 disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              disabled={saving}
+              className="rounded-md bg-white/10 px-3 py-1.5 text-sm hover:bg-white/20 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function HookPortfolio({
+  pkg,
+  onRefresh,
+}: {
+  pkg: Package;
+  onRefresh: () => Promise<void> | void;
+}) {
+  const [pendingIndex, setPendingIndex] = useState<number | null>(null);
+
+  const choose = async (i: number) => {
+    if (i === pkg.chosen_hook_index) return;
+    setPendingIndex(i);
+    try {
+      await patchPackage(pkg.id, { chosen_hook_index: i });
+      await onRefresh();
+    } finally {
+      setPendingIndex(null);
+    }
+  };
+
+  return (
+    <Section title="Hook portfolio">
+      <p className="mb-3 text-xs opacity-60">
+        Click an alternative to make it the chosen hook. Note: swapping here
+        doesn&apos;t rewrite the script&apos;s ## HOOK line — edit the script
+        section above if you want the new hook in the narration.
+      </p>
+      <ul className="space-y-2">
+        {(pkg.hook_alternatives ?? []).map((h, i) => {
+          const isChosen = i === pkg.chosen_hook_index;
+          const isPending = pendingIndex === i;
+          return (
+            <li
+              key={i}
+              className={`flex items-start justify-between gap-3 rounded-md border p-3 ${
+                isChosen
+                  ? "border-green-500/40 bg-green-500/5"
+                  : "border-white/5 bg-white/5"
+              }`}
+            >
+              <label className="flex flex-1 cursor-pointer items-start gap-3 text-sm">
+                <input
+                  type="radio"
+                  name={`hook-choice-${pkg.id}`}
+                  checked={isChosen}
+                  onChange={() => choose(i)}
+                  disabled={pendingIndex !== null}
+                  className="mt-1"
+                />
+                <span className="flex-1">
+                  <span className="mr-2 rounded-full bg-white/10 px-2 py-0.5 text-xs uppercase tracking-wider opacity-70">
+                    {ANGLE_LABEL[h.angle] ?? h.angle}
+                  </span>
+                  {isChosen && (
+                    <span className="mr-2 rounded-full bg-green-500/20 px-2 py-0.5 text-xs text-green-200">
+                      chosen
+                    </span>
+                  )}
+                  {isPending && (
+                    <span className="mr-2 rounded-full bg-white/10 px-2 py-0.5 text-xs opacity-70">
+                      saving…
+                    </span>
+                  )}
+                  <span>{h.text}</span>
+                </span>
+              </label>
+              <CopyButton text={h.text} />
+            </li>
+          );
+        })}
+      </ul>
+    </Section>
+  );
+}
+
+function EditableScenesSection({
+  pkg,
+  onRefresh,
+}: {
+  pkg: Package;
+  onRefresh: () => Promise<void> | void;
+}) {
+  const scenes = pkg.visual_prompts ?? [];
+  const totalPrompts = scenes.reduce((n, s) => n + scenePrompts(s).length, 0);
+
+  return (
+    <Section
+      title={`Image prompts (${totalPrompts} across ${scenes.length} sections)`}
+    >
+      <div className="space-y-3">
+        {scenes.map((scene, i) => (
+          <EditableSceneRow
+            key={i}
+            pkg={pkg}
+            sceneIndex={i}
+            onRefresh={onRefresh}
+          />
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+function EditableSceneRow({
+  pkg,
+  sceneIndex,
+  onRefresh,
+}: {
+  pkg: Package;
+  sceneIndex: number;
+  onRefresh: () => Promise<void> | void;
+}) {
+  const scene = (pkg.visual_prompts ?? [])[sceneIndex];
+  const prompts = scenePrompts(scene);
+  const sectionKey = scene.section ?? scene.label ?? "";
+
+  const [editing, setEditing] = useState(false);
+  const [drafts, setDrafts] = useState<string[]>(prompts);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const startEdit = () => {
+    setDrafts(prompts);
+    setError(null);
+    setEditing(true);
+  };
+
+  const save = async () => {
+    const cleaned = drafts.map((p) => p.trim()).filter((p) => p.length > 0);
+    if (cleaned.length === 0) {
+      setError("At least one prompt is required.");
+      return;
+    }
+    const allScenes = (pkg.visual_prompts ?? []).map((s, i) =>
+      i === sceneIndex
+        ? { ...s, prompts: cleaned, prompt: undefined }
+        : s,
+    );
+    setSaving(true);
+    setError(null);
+    try {
+      await patchPackage(pkg.id, { visual_prompts: allScenes });
+      await onRefresh();
+      setEditing(false);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-md border border-white/5 bg-white/5 p-3">
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <div className="text-xs opacity-60">
+          <span className="mr-2 rounded-full bg-white/10 px-2 py-0.5">
+            {SECTION_LABEL[sectionKey] ?? sectionKey}
+          </span>
+          {prompts.length > 1 && (
+            <span className="mr-2 rounded-full bg-emerald-500/20 px-2 py-0.5 text-emerald-200">
+              {prompts.length} images
+            </span>
+          )}
+          {scene.focus && <span>{scene.focus}</span>}
+        </div>
+        {!editing && (
+          <button
+            onClick={startEdit}
+            className="rounded-md bg-white/10 px-2 py-1 text-xs hover:bg-white/20"
+          >
+            Edit
+          </button>
+        )}
+      </div>
+
+      {!editing ? (
+        <div className="space-y-2">
+          {prompts.map((prompt, j) => (
+            <div
+              key={j}
+              className="flex items-start justify-between gap-3 text-sm"
+            >
+              <div className="flex-1 border-l border-white/10 pl-3">
+                {prompts.length > 1 && (
+                  <span className="mr-2 text-xs opacity-40">#{j + 1}</span>
+                )}
+                {prompt}
+              </div>
+              <CopyButton text={prompt} />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {drafts.map((draft, j) => (
+            <textarea
+              key={j}
+              value={draft}
+              onChange={(e) =>
+                setDrafts((ds) =>
+                  ds.map((d, k) => (k === j ? e.target.value : d)),
+                )
+              }
+              spellCheck={false}
+              className="h-20 w-full rounded-md border border-white/10 bg-black/40 p-2 font-mono text-xs leading-relaxed"
+            />
+          ))}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() =>
+                setDrafts((ds) => [...ds, ""])
+              }
+              className="rounded-md bg-white/10 px-2 py-1 text-xs hover:bg-white/20"
+            >
+              + prompt
+            </button>
+            {drafts.length > 1 && (
+              <button
+                onClick={() => setDrafts((ds) => ds.slice(0, -1))}
+                className="rounded-md bg-white/10 px-2 py-1 text-xs hover:bg-white/20"
+              >
+                − prompt
+              </button>
+            )}
+          </div>
+          {error && <p className="text-xs text-red-200">{error}</p>}
+          <p className="text-xs opacity-60">
+            Saving re-flags the package for render.
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={save}
+              disabled={saving}
+              className="rounded-md bg-green-500/20 px-3 py-1 text-xs text-green-100 hover:bg-green-500/30 disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              disabled={saving}
+              className="rounded-md bg-white/10 px-3 py-1 text-xs hover:bg-white/20 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function EditablePlatformMetaSection({
+  pkg,
+  onRefresh,
+}: {
+  pkg: Package;
+  onRefresh: () => Promise<void> | void;
+}) {
+  return (
+    <Section title="Per-platform meta">
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        {PLATFORMS.map(({ key, label }) => (
+          <EditableMetaCard
+            key={key}
+            pkg={pkg}
+            platformKey={key}
+            platformLabel={label}
+            onRefresh={onRefresh}
+          />
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+function EditableMetaCard({
+  pkg,
+  platformKey,
+  platformLabel,
+  onRefresh,
+}: {
+  pkg: Package;
+  platformKey: string;
+  platformLabel: string;
+  onRefresh: () => Promise<void> | void;
+}) {
+  const currentTitle = pkg.titles?.[platformKey] ?? "";
+  const currentTags = pkg.hashtags?.[platformKey] ?? [];
+  const currentTagStr = currentTags.join(" ");
+
+  const [editing, setEditing] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(currentTitle);
+  const [tagsDraft, setTagsDraft] = useState(currentTagStr);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const startEdit = () => {
+    setTitleDraft(currentTitle);
+    setTagsDraft(currentTagStr);
+    setError(null);
+    setEditing(true);
+  };
+
+  const save = async () => {
+    const nextTitles = { ...(pkg.titles ?? {}), [platformKey]: titleDraft };
+    const nextTags = tagsDraft
+      .split(/\s+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length > 0);
+    const nextHashtags = { ...(pkg.hashtags ?? {}), [platformKey]: nextTags };
+    setSaving(true);
+    setError(null);
+    try {
+      await patchPackage(pkg.id, {
+        titles: nextTitles,
+        hashtags: nextHashtags,
+      });
+      await onRefresh();
+      setEditing(false);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="rounded-md border border-white/5 bg-white/5 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <h3 className="text-sm font-medium">{platformLabel}</h3>
+        {!editing && (
+          <button
+            onClick={startEdit}
+            className="rounded-md bg-white/10 px-2 py-1 text-xs hover:bg-white/20"
+          >
+            Edit
+          </button>
+        )}
+      </div>
+
+      {!editing ? (
+        <>
+          <div className="mb-3">
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-xs opacity-60">Title</span>
+              <CopyButton text={currentTitle || "—"} />
+            </div>
+            <p className="text-sm">{currentTitle || "—"}</p>
+          </div>
+          <div>
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-xs opacity-60">
+                Hashtags ({currentTags.length})
+              </span>
+              <CopyButton text={currentTagStr} />
+            </div>
+            <p className="text-sm opacity-80">{currentTagStr || "—"}</p>
+          </div>
+        </>
+      ) : (
+        <div className="space-y-3">
+          <div>
+            <label className="mb-1 block text-xs opacity-60">Title</label>
+            <input
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              className="w-full rounded-md border border-white/10 bg-black/40 p-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs opacity-60">
+              Hashtags (space-separated)
+            </label>
+            <textarea
+              value={tagsDraft}
+              onChange={(e) => setTagsDraft(e.target.value)}
+              className="h-20 w-full rounded-md border border-white/10 bg-black/40 p-2 font-mono text-xs"
+            />
+          </div>
+          {error && <p className="text-xs text-red-200">{error}</p>}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={save}
+              disabled={saving}
+              className="rounded-md bg-green-500/20 px-3 py-1 text-xs text-green-100 hover:bg-green-500/30 disabled:opacity-50"
+            >
+              {saving ? "Saving…" : "Save"}
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              disabled={saving}
+              className="rounded-md bg-white/10 px-3 py-1 text-xs hover:bg-white/20 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

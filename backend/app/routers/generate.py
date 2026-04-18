@@ -281,6 +281,112 @@ def approve_package(package_id: int, db: Session = Depends(get_db)) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# PATCH /packages/{id} — hand-edit generated fields without a regenerate.
+# ---------------------------------------------------------------------------
+
+_RENDER_AFFECTING_KEYS = {"script", "visual_prompts"}
+
+
+@router.patch("/packages/{package_id}")
+def patch_package(
+    package_id: int,
+    payload: dict,
+    db: Session = Depends(get_db),
+) -> dict:
+    """Edit generated creative fields in place.
+
+    Editable keys: `script`, `visual_prompts`, `chosen_hook_index`, `titles`,
+    `hashtags`. Any subset is allowed. Editing `script` or `visual_prompts`
+    clears `rendered_narration_hash` so `_needs_rerender` reports true and
+    the UI prompts the user to re-render.
+    """
+    package = db.get(ContentPackage, package_id)
+    if package is None:
+        raise HTTPException(status_code=404, detail="Package not found")
+
+    if "script" in payload:
+        script = payload["script"]
+        if not isinstance(script, str) or not script.strip():
+            raise HTTPException(400, detail="script must be a non-empty string")
+        parsed = llm.script_by_section(script)
+        missing = [s for s in llm.SECTIONS if not parsed.get(s, "").strip()]
+        if missing:
+            raise HTTPException(
+                400,
+                detail=(
+                    "script must contain all five sections "
+                    f"(## HOOK, ## WORLD TEASE, ## EMOTIONAL PULL, "
+                    f"## SOCIAL PROOF, ## CTA) — missing: {', '.join(missing)}"
+                ),
+            )
+        package.script = script
+
+    if "visual_prompts" in payload:
+        scenes = payload["visual_prompts"]
+        if not isinstance(scenes, list) or not scenes:
+            raise HTTPException(400, detail="visual_prompts must be a non-empty list")
+        for i, scene in enumerate(scenes):
+            if not isinstance(scene, dict):
+                raise HTTPException(400, detail=f"visual_prompts[{i}] must be an object")
+            label = scene.get("section") or scene.get("label")
+            if not label:
+                raise HTTPException(
+                    400, detail=f"visual_prompts[{i}] needs a section or label"
+                )
+            prompts = scene.get("prompts")
+            if prompts is None and scene.get("prompt"):
+                prompts = [scene["prompt"]]
+            if not prompts or not any(isinstance(p, str) and p.strip() for p in prompts):
+                raise HTTPException(
+                    400,
+                    detail=f"visual_prompts[{i}] must have at least one non-empty prompt",
+                )
+        package.visual_prompts = scenes
+
+    if "chosen_hook_index" in payload:
+        idx = payload["chosen_hook_index"]
+        alternatives = package.hook_alternatives or []
+        if (
+            not isinstance(idx, int)
+            or isinstance(idx, bool)
+            or idx < 0
+            or idx >= len(alternatives)
+        ):
+            raise HTTPException(
+                400,
+                detail=(
+                    f"chosen_hook_index must be an integer in "
+                    f"[0, {max(len(alternatives) - 1, 0)}]"
+                ),
+            )
+        package.chosen_hook_index = idx
+
+    if "titles" in payload:
+        titles = payload["titles"]
+        if not isinstance(titles, dict):
+            raise HTTPException(400, detail="titles must be an object")
+        package.titles = titles
+
+    if "hashtags" in payload:
+        hashtags = payload["hashtags"]
+        if not isinstance(hashtags, dict):
+            raise HTTPException(400, detail="hashtags must be an object")
+        for platform, tags in hashtags.items():
+            if not isinstance(tags, list) or not all(isinstance(t, str) for t in tags):
+                raise HTTPException(
+                    400,
+                    detail=f"hashtags[{platform}] must be a list of strings",
+                )
+        package.hashtags = hashtags
+
+    if _RENDER_AFFECTING_KEYS.intersection(payload.keys()):
+        package.rendered_narration_hash = None
+
+    db.commit()
+    return {"ok": True, "package_id": package_id}
+
+
+# ---------------------------------------------------------------------------
 # Workers — the sync path calls the same logic inline; the async path runs
 # it inside jobs.job_session which owns the Job row's lifecycle.
 # ---------------------------------------------------------------------------
