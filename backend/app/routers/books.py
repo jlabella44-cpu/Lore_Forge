@@ -73,6 +73,7 @@ def get_book(book_id: int, db: Session = Depends(get_db)) -> dict:
         "genre_override": book.genre_override,
         "status": book.status,
         "score": book.score,
+        "dossier": book.dossier,
         "packages": [
             {
                 "id": p.id,
@@ -107,7 +108,11 @@ def update_book(
     payload: dict,
     db: Session = Depends(get_db),
 ) -> dict:
-    """Editable fields: genre_override, status."""
+    """Editable fields: genre_override, status, dossier.
+
+    `dossier`: pass a dict to replace it wholesale, or `null` to clear it
+    (next /generate call will then rebuild from scratch via the LLM).
+    """
     book = db.get(Book, book_id)
     if book is None:
         raise HTTPException(status_code=404, detail="Book not found")
@@ -115,6 +120,14 @@ def update_book(
         book.genre_override = payload["genre_override"] or None
     if "status" in payload:
         book.status = payload["status"]
+    if "dossier" in payload:
+        value = payload["dossier"]
+        if value is not None and not isinstance(value, dict):
+            raise HTTPException(
+                status_code=400,
+                detail="dossier must be a JSON object or null",
+            )
+        book.dossier = value
     db.commit()
     return {"ok": True}
 
