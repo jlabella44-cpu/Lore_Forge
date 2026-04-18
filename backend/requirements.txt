@@ -30,3 +30,10 @@ jinja2==3.1.4
 # YAML import/export for Profile rows — lets users share niche
 # configs as a single file instead of hand-editing JSON columns.
 pyyaml==6.0.2
+
+# OS keychain for provider secrets in the desktop build. Keychain on
+# macOS, Credential Manager on Windows, Secret Service on Linux.
+# Dev mode (LORE_FORGE_DESKTOP unset) skips keyring entirely and
+# falls through to .env behaviour, so contributors don't need to
+# configure a keyring backend.
+keyring==25.5.0
