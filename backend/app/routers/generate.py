@@ -387,6 +387,96 @@ def patch_package(
 
 
 # ---------------------------------------------------------------------------
+# POST /packages/{id}/apply-chosen-hook — sync the script's HOOK block
+# to the hook_alternatives entry at chosen_hook_index.
+# ---------------------------------------------------------------------------
+
+
+@router.post("/packages/{package_id}/apply-chosen-hook")
+def apply_chosen_hook(
+    package_id: int, db: Session = Depends(get_db)
+) -> dict:
+    """Deterministically rewrite the script's `## HOOK` section with the
+    text of the currently chosen hook alternative. Cheaper than a full
+    regenerate when the user swaps hooks via the portfolio radios.
+    """
+    package = db.get(ContentPackage, package_id)
+    if package is None:
+        raise HTTPException(status_code=404, detail="Package not found")
+
+    alternatives = package.hook_alternatives or []
+    idx = package.chosen_hook_index
+    if not alternatives or idx is None:
+        raise HTTPException(
+            status_code=400, detail="Package has no chosen hook to apply"
+        )
+    if idx < 0 or idx >= len(alternatives):
+        raise HTTPException(
+            status_code=400, detail="chosen_hook_index is out of range"
+        )
+    chosen = alternatives[idx]
+    if not isinstance(chosen, dict) or not chosen.get("text", "").strip():
+        raise HTTPException(
+            status_code=400, detail="Chosen hook alternative has no text"
+        )
+
+    sections = llm.script_by_section(package.script or "")
+    missing = [s for s in llm.SECTIONS if not sections.get(s, "").strip()]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Script is missing sections and cannot be rebuilt: "
+                + ", ".join(missing)
+            ),
+        )
+
+    new_hook_text = chosen["text"].strip()
+    old_hook_text = sections["hook"].strip()
+    sections["hook"] = new_hook_text
+    package.script = "\n\n".join(
+        f"{llm.SECTION_HEADERS[s]}\n{sections[s]}" for s in llm.SECTIONS
+    )
+
+    # Best-effort narration sync. TTS reads package.narration (not the
+    # script), so without this the audio would still say the old hook.
+    # Scan every hook_alternatives entry plus the script's current hook
+    # text — if any prefixes the narration, swap it for new_hook_text.
+    # Handles both the first-apply case and the recover-from-stale case
+    # where a prior apply rewrote the script but not the narration.
+    # If nothing matches (hand-edited narration), leave it alone.
+    narration_synced = False
+    if package.narration:
+        stripped = package.narration.lstrip()
+        leading_ws = len(package.narration) - len(stripped)
+        candidates: list[str] = [old_hook_text]
+        for alt in alternatives:
+            if isinstance(alt, dict):
+                text = alt.get("text", "").strip()
+                if text and text not in candidates:
+                    candidates.append(text)
+        for candidate in candidates:
+            if not candidate or candidate == new_hook_text:
+                continue
+            if stripped.startswith(candidate):
+                package.narration = (
+                    new_hook_text
+                    + package.narration[leading_ws + len(candidate):]
+                )
+                narration_synced = True
+                break
+
+    package.rendered_narration_hash = None
+    db.commit()
+    return {
+        "ok": True,
+        "package_id": package_id,
+        "hook": new_hook_text,
+        "narration_synced": narration_synced,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Workers — the sync path calls the same logic inline; the async path runs
 # it inside jobs.job_session which owns the Job row's lifecycle.
 # ---------------------------------------------------------------------------

@@ -111,6 +111,51 @@ def test_generate_hooks_routes_to_claude_with_cached_system(settings_with_keys):
     assert kwargs["model"] == "claude-opus-4-6"
 
 
+def test_generate_hooks_normalizes_bare_string_alternatives(settings_with_keys):
+    """Claude occasionally returns `alternatives: ["text1", "text2", "text3"]`
+    instead of the `[{angle, text}]` shape. generate_hooks must coerce."""
+    fake = {
+        "alternatives": ["first hook", "second hook", "third hook"],
+        "chosen_index": 1,
+        "rationale": "",
+    }
+    with patch.object(llm, "_anthropic_client") as c:
+        c.return_value.messages.create.return_value = _claude_tool_response(fake)
+        out = llm.generate_hooks(
+            title="X", author="Y", description="Z", genre="fantasy"
+        )
+
+    assert [a["text"] for a in out["alternatives"]] == [
+        "first hook", "second hook", "third hook",
+    ]
+    # Angles are assigned deterministically from HOOK_ANGLES.
+    assert all(a["angle"] in llm.HOOK_ANGLES for a in out["alternatives"])
+    assert out["chosen_index"] == 1
+
+
+def test_generate_hooks_drops_malformed_alternatives(settings_with_keys):
+    """Empty-string or null alternatives get filtered; chosen_index clamps."""
+    fake = {
+        "alternatives": [
+            {"angle": "curiosity", "text": "keeper"},
+            "",
+            None,
+        ],
+        "chosen_index": 2,
+        "rationale": "",
+    }
+    with patch.object(llm, "_anthropic_client") as c:
+        c.return_value.messages.create.return_value = _claude_tool_response(fake)
+        out = llm.generate_hooks(
+            title="X", author="Y", description="Z", genre="fantasy"
+        )
+
+    assert len(out["alternatives"]) == 1
+    assert out["alternatives"][0]["text"] == "keeper"
+    # chosen_index clamped to the remaining single entry.
+    assert out["chosen_index"] == 0
+
+
 def test_generate_hooks_clamps_out_of_range_chosen_index(settings_with_keys):
     """If the model hallucinates chosen_index=5, clamp to 0..2."""
     fake = {

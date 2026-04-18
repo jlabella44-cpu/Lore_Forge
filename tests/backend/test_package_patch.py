@@ -248,3 +248,135 @@ def test_patch_empty_payload_is_noop(client, package_id):
     """Sending {} should be valid — just a no-op commit."""
     res = client.patch(f"/packages/{package_id}", json={})
     assert res.status_code == 200
+
+
+# --- POST /packages/{id}/apply-chosen-hook --------------------------------
+
+
+def test_apply_chosen_hook_rewrites_hook_section(client, package_id):
+    # Swap chosen_hook_index to 0 (curiosity hook), then apply.
+    client.patch(f"/packages/{package_id}", json={"chosen_hook_index": 0})
+
+    res = client.post(f"/packages/{package_id}/apply-chosen-hook")
+    assert res.status_code == 200
+    assert res.json()["hook"] == FAKE_HOOKS["alternatives"][0]["text"]
+
+    pkg = _pkg(client, package_id=package_id)
+    expected_hook_text = FAKE_HOOKS["alternatives"][0]["text"]
+    assert f"## HOOK\n{expected_hook_text}" in pkg["script"]
+    # Other sections preserved.
+    assert "## WORLD TEASE\nA swamp-town mystery." in pkg["script"]
+    assert "## CTA\nLink in bio to grab it." in pkg["script"]
+    # Re-render flag flipped.
+    assert pkg["needs_rerender"] is True
+
+
+def test_apply_chosen_hook_syncs_narration_when_prefix_matches(client, package_id):
+    """If the narration begins with the old hook, rewrite the prefix so TTS
+    speaks the new hook — otherwise Render would use stale audio."""
+    # Seed narration so it starts with the current (chosen=1) hook text.
+    old_hook = FAKE_HOOKS["alternatives"][1]["text"]
+    from app import db as db_module
+    from app.models import ContentPackage
+
+    session = db_module.SessionLocal()
+    row = session.get(ContentPackage, package_id)
+    row.narration = f"{old_hook} [PAUSE] And then the rest continues."
+    session.commit()
+    session.close()
+
+    # Swap to alternative 0 and apply.
+    client.patch(f"/packages/{package_id}", json={"chosen_hook_index": 0})
+    res = client.post(f"/packages/{package_id}/apply-chosen-hook")
+    assert res.status_code == 200
+    assert res.json()["narration_synced"] is True
+
+    # Narration now leads with the new hook, tail preserved.
+    new_hook = FAKE_HOOKS["alternatives"][0]["text"]
+    pkg = _pkg(client, package_id=package_id)
+    assert pkg["narration"].startswith(new_hook)
+    assert "[PAUSE] And then the rest continues." in pkg["narration"]
+
+
+def test_apply_chosen_hook_syncs_narration_when_any_alternative_matches(
+    client, package_id,
+):
+    """Regression: if a prior apply rewrote the script but left the narration
+    stale, re-clicking Apply must still sync narration by matching against
+    any hook_alternatives entry (not just the script's current hook)."""
+    from app import db as db_module
+    from app.models import ContentPackage
+
+    # Simulate a prior apply that already rewrote the script to alt[2] but
+    # left the narration pointing at the original alt[1].
+    alt_1_text = FAKE_HOOKS["alternatives"][1]["text"]
+    alt_2_text = FAKE_HOOKS["alternatives"][2]["text"]
+
+    session = db_module.SessionLocal()
+    row = session.get(ContentPackage, package_id)
+    row.script = (
+        f"## HOOK\n{alt_2_text}\n\n"
+        "## WORLD TEASE\nw\n\n"
+        "## EMOTIONAL PULL\ne\n\n"
+        "## SOCIAL PROOF\ns\n\n"
+        "## CTA\nc"
+    )
+    row.narration = f"{alt_1_text} [PAUSE] tail."
+    row.chosen_hook_index = 2
+    session.commit()
+    session.close()
+
+    res = client.post(f"/packages/{package_id}/apply-chosen-hook")
+    assert res.status_code == 200
+    assert res.json()["narration_synced"] is True
+
+    pkg = _pkg(client, package_id=package_id)
+    assert pkg["narration"].startswith(alt_2_text)
+    assert "[PAUSE] tail." in pkg["narration"]
+
+
+def test_apply_chosen_hook_leaves_narration_alone_when_prefix_mismatches(
+    client, package_id,
+):
+    """If the narration has been edited and no longer starts with the old
+    hook, don't guess — leave it for the user to fix."""
+    from app import db as db_module
+    from app.models import ContentPackage
+
+    session = db_module.SessionLocal()
+    row = session.get(ContentPackage, package_id)
+    row.narration = "Completely different narration opening. [PAUSE] Rest."
+    session.commit()
+    session.close()
+
+    client.patch(f"/packages/{package_id}", json={"chosen_hook_index": 0})
+    res = client.post(f"/packages/{package_id}/apply-chosen-hook")
+    assert res.status_code == 200
+    assert res.json()["narration_synced"] is False
+
+    pkg = _pkg(client, package_id=package_id)
+    assert pkg["narration"].startswith("Completely different narration opening.")
+
+
+def test_apply_chosen_hook_404_on_missing_package(client):
+    assert client.post("/packages/99999/apply-chosen-hook").status_code == 404
+
+
+def test_apply_chosen_hook_400_when_script_missing_sections(client, package_id):
+    # Wreck the script: remove the ## CTA block.
+    client.patch(
+        f"/packages/{package_id}",
+        json={"chosen_hook_index": 0},
+    )
+    from app import db as db_module
+    from app.models import ContentPackage
+
+    session = db_module.SessionLocal()
+    pkg_row = session.get(ContentPackage, package_id)
+    pkg_row.script = "## HOOK\nx\n\n## WORLD TEASE\ny"
+    session.commit()
+    session.close()
+
+    res = client.post(f"/packages/{package_id}/apply-chosen-hook")
+    assert res.status_code == 400
+    assert "missing" in res.json()["detail"].lower()

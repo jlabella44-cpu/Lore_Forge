@@ -772,6 +772,8 @@ function HookPortfolio({
   onRefresh: () => Promise<void> | void;
 }) {
   const [pendingIndex, setPendingIndex] = useState<number | null>(null);
+  const [applying, setApplying] = useState(false);
+  const [applyError, setApplyError] = useState<string | null>(null);
 
   const choose = async (i: number) => {
     if (i === pkg.chosen_hook_index) return;
@@ -784,13 +786,61 @@ function HookPortfolio({
     }
   };
 
+  const applyToScript = async () => {
+    setApplying(true);
+    setApplyError(null);
+    try {
+      await apiFetch(`/packages/${pkg.id}/apply-chosen-hook`, {
+        method: "POST",
+      });
+      await onRefresh();
+    } catch (e) {
+      setApplyError(String(e));
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const chosenText =
+    pkg.chosen_hook_index !== null
+      ? pkg.hook_alternatives?.[pkg.chosen_hook_index]?.text
+      : undefined;
+  // The ## HOOK block's first line (pkg.script) — if it matches the chosen
+  // alternative's text the Apply button has nothing useful to do.
+  const hookInSync =
+    !!chosenText &&
+    !!pkg.script &&
+    pkg.script
+      .replace(/^#+\s*HOOK\s*:?\s*\n?/i, "")
+      .trimStart()
+      .startsWith(chosenText.trim());
+
   return (
     <Section title="Hook portfolio">
-      <p className="mb-3 text-xs opacity-60">
-        Click an alternative to make it the chosen hook. Note: swapping here
-        doesn&apos;t rewrite the script&apos;s ## HOOK line — edit the script
-        section above if you want the new hook in the narration.
-      </p>
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <p className="flex-1 text-xs opacity-60">
+          Click an alternative to make it the chosen hook. Swapping only
+          updates metadata — use &ldquo;Apply to script&rdquo; to deterministically
+          rewrite the script&apos;s ## HOOK line with the chosen hook text.
+        </p>
+        {pkg.hook_alternatives && pkg.hook_alternatives.length > 0 && (
+          <button
+            onClick={applyToScript}
+            disabled={applying || hookInSync || pendingIndex !== null}
+            title={
+              hookInSync
+                ? "Script's ## HOOK already matches the chosen alternative"
+                : "Rewrite the script's ## HOOK block with the chosen hook text"
+            }
+            className="shrink-0 rounded-md bg-white/10 px-3 py-1 text-xs hover:bg-white/20 disabled:opacity-40"
+          >
+            {applying ? "Applying…" : "Apply to script"}
+          </button>
+        )}
+      </div>
+      {applyError && (
+        <p className="mb-3 text-xs text-red-200">Apply failed: {applyError}</p>
+      )}
       <ul className="space-y-2">
         {(pkg.hook_alternatives ?? []).map((h, i) => {
           const isChosen = i === pkg.chosen_hook_index;
