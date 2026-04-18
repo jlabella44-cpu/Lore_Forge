@@ -21,3 +21,8 @@ mutagen==1.47.0
 
 # OS-conventional user data / cache directories for the desktop build.
 platformdirs==4.3.6
+
+# Jinja2-templated LLM prompts loaded from the active Profile.prompts
+# JSON column. Used by app.services.prompt_renderer so profiles can
+# ship niche-specific wording without touching Python code.
+jinja2==3.1.4
