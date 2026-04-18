@@ -9,7 +9,7 @@ from app.config import APP_BASE_DIR, settings
 from app.db import init_db
 from app.migrations import run_migrations_to_head
 from app.observability import configure_logging, get_logger
-from app.routers import analytics, discover, generate, items, jobs, publish, series
+from app.routers import analytics, discover, generate, items, jobs, profiles, publish, series
 from app.scheduler import register_jobs, scheduler
 
 
@@ -58,6 +58,7 @@ app.include_router(publish.router, prefix="/publish", tags=["publish"])
 app.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 app.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
 app.include_router(series.router, prefix="/series", tags=["series"])
+app.include_router(profiles.router, prefix="/profiles", tags=["profiles"])
 
 # Serve rendered mp4s (and the intermediate assets that produced them) at
 # /renders/{package_id}/out.mp4 — lets the frontend preview without piping

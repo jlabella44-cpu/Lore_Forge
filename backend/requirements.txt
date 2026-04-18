@@ -26,3 +26,7 @@ platformdirs==4.3.6
 # JSON column. Used by app.services.prompt_renderer so profiles can
 # ship niche-specific wording without touching Python code.
 jinja2==3.1.4
+
+# YAML import/export for Profile rows — lets users share niche
+# configs as a single file instead of hand-editing JSON columns.
+pyyaml==6.0.2
