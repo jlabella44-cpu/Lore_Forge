@@ -69,7 +69,9 @@ jobs:
         with:
           node-version: "20"
           cache: npm
-          cache-dependency-path: package-lock.json
+          cache-dependency-path: |
+            package-lock.json
+            frontend/package-lock.json
 
       - name: Set up Rust (stable)
         uses: dtolnay/rust-toolchain@stable
@@ -100,6 +102,14 @@ jobs:
 
       - name: Install root deps (Tauri CLI)
         run: npm ci
+
+      # Tauri's beforeBuildCommand shells out to
+      # `npm --prefix ../frontend run build`, which needs next + its
+      # build-time deps resolved under frontend/node_modules. Root `npm
+      # ci` above only covers the Tauri CLI — no workspaces are wired
+      # up — so the frontend install is a separate step.
+      - name: Install frontend deps
+        run: npm --prefix frontend ci
 
       - name: Generate placeholder icons if missing
         # Tauri's bundler requires icon files. Until the user commits
