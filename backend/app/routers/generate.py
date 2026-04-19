@@ -63,7 +63,7 @@ def generate_all(
             "generate",
             book.id,
             _generate_worker,
-            book_id=book.id,
+            item_id=book.id,
             note=None,
         )
         job_ids.append(job_id)
@@ -77,9 +77,9 @@ def generate_all(
     }
 
 
-@router.post("/items/{book_id}/generate")
+@router.post("/items/{item_id}/generate")
 def generate_package(
-    book_id: int,
+    item_id: int,
     payload: dict | None = None,
     response: Response = None,  # type: ignore[assignment]
     db: Session = Depends(get_db),
@@ -90,7 +90,7 @@ def generate_package(
     Synchronous by default. Pass `?async=true` to enqueue and get back
     `{job_id, status: "queued"}` with HTTP 202 — poll GET /jobs/{job_id}.
     """
-    book = db.get(ContentItem, book_id)
+    book = db.get(ContentItem, item_id)
     if book is None:
         raise HTTPException(status_code=404, detail="Item not found")
 
@@ -104,16 +104,16 @@ def generate_package(
     if asynchronous:
         job_id = jobs.enqueue(
             "generate",
-            book_id,
+            item_id,
             _generate_worker,
-            book_id=book_id,
+            item_id=item_id,
             note=note,
         )
         if response is not None:
             response.status_code = 202
         return {"job_id": job_id, "status": "queued"}
 
-    return _generate_sync(db, book, book_id, note)
+    return _generate_sync(db, book, item_id, note)
 
 
 # ---------------------------------------------------------------------------
@@ -481,7 +481,7 @@ def apply_chosen_hook(
 # it inside jobs.job_session which owns the Job row's lifecycle.
 # ---------------------------------------------------------------------------
 
-def _generate_sync(db: Session, book: ContentItem, book_id: int, note: str | None) -> dict:
+def _generate_sync(db: Session, book: ContentItem, item_id: int, note: str | None) -> dict:
     genre = book.genre_override or book.genre or "other"
     previous_status = book.status
     book.status = "generating"
@@ -498,18 +498,18 @@ def _generate_sync(db: Session, book: ContentItem, book_id: int, note: str | Non
         }
     except Exception as exc:
         db.rollback()
-        book = db.get(ContentItem, book_id)
+        book = db.get(ContentItem, item_id)
         if book is not None:
             book.status = previous_status
             db.commit()
         raise HTTPException(status_code=502, detail=f"Generation failed: {exc}") from exc
 
 
-def _generate_worker(job_id: int, *, book_id: int, note: str | None) -> None:
+def _generate_worker(job_id: int, *, item_id: int, note: str | None) -> None:
     with jobs.job_session(job_id) as (db, set_progress):
-        book = db.get(ContentItem, book_id)
+        book = db.get(ContentItem, item_id)
         if book is None:
-            raise RuntimeError(f"Item {book_id} not found")
+            raise RuntimeError(f"Item {item_id} not found")
         genre = book.genre_override or book.genre or "other"
         previous_status = book.status
         book.status = "generating"
@@ -526,7 +526,7 @@ def _generate_worker(job_id: int, *, book_id: int, note: str | None) -> None:
             set_progress.result(result)
         except Exception:
             db.rollback()
-            book = db.get(ContentItem, book_id)
+            book = db.get(ContentItem, item_id)
             if book is not None:
                 book.status = previous_status
                 db.commit()
@@ -584,7 +584,7 @@ def _generate_core_with_progress(
 
     with log_call(
         "generate.pipeline",
-        book_id=book.id,
+        item_id=book.id,
         genre=genre,
         has_note=bool(note),
         format=fmt,

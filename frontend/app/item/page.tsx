@@ -114,7 +114,7 @@ export default function BookReviewPage() {
 
 function BookReviewContent() {
   const searchParams = useSearchParams();
-  const bookId = searchParams.get("id") ?? "";
+  const itemId = searchParams.get("id") ?? "";
   const [book, setBook] = useState<BookDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<number | null>(null);
@@ -134,7 +134,7 @@ function BookReviewContent() {
   const refresh = async () => {
     setError(null);
     try {
-      const data = await apiFetch<BookDetail>(`/items/${bookId}`);
+      const data = await apiFetch<BookDetail>(`/items/${itemId}`);
       setBook(data);
       setActiveId((prev) => prev ?? data.packages[0]?.id ?? null);
     } catch (e) {
@@ -144,10 +144,10 @@ function BookReviewContent() {
   };
 
   useEffect(() => {
-    if (!bookId) return;
+    if (!itemId) return;
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [bookId]);
+  }, [itemId]);
 
   // Preserve tab in URL hash.
   useEffect(() => {
@@ -169,7 +169,7 @@ function BookReviewContent() {
     setError(null);
     try {
       const queued = await apiFetch<{ job_id: number; status: string }>(
-        `/items/${bookId}/generate?async=true`,
+        `/items/${itemId}/generate?async=true`,
         { method: "POST", body: JSON.stringify({ note: note ?? null }) },
       );
       const job = await pollJob(queued.job_id, (j) =>
@@ -308,7 +308,7 @@ function BookReviewContent() {
       )}
 
       <DossierEditor
-        bookId={book.id}
+        itemId={book.id}
         dossier={book.dossier}
         onSaved={refresh}
       />
@@ -1235,11 +1235,11 @@ function RegenerateForm({
 // ---------------------------------------------------------------------------
 
 function DossierEditor({
-  bookId,
+  itemId,
   dossier,
   onSaved,
 }: {
-  bookId: number;
+  itemId: number;
   dossier: Record<string, unknown> | null;
   onSaved: () => Promise<void> | void;
 }) {
@@ -1271,7 +1271,7 @@ function DossierEditor({
     setSaving(true);
     setSaveError(null);
     try {
-      await apiFetch(`/items/${bookId}`, {
+      await apiFetch(`/items/${itemId}`, {
         method: "PATCH",
         body: JSON.stringify({ dossier: parsed }),
       });
@@ -1289,7 +1289,7 @@ function DossierEditor({
     setSaving(true);
     setSaveError(null);
     try {
-      await apiFetch(`/items/${bookId}`, {
+      await apiFetch(`/items/${itemId}`, {
         method: "PATCH",
         body: JSON.stringify({ dossier: null }),
       });

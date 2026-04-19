@@ -12,7 +12,7 @@ show what's happening.
 
 Example:
 
-    def generate_worker(job_id: int, book_id: int):
+    def generate_worker(job_id: int, item_id: int):
         with job_session(job_id) as (db, set_progress):
             set_progress("classifying…")
             ...
@@ -20,7 +20,7 @@ Example:
             ...
             return {"package_id": pkg.id}
 
-    job_id = jobs.enqueue("generate", book_id, generate_worker, book_id)
+    job_id = jobs.enqueue("generate", item_id, generate_worker, item_id)
     # → client gets {job_id}; polls GET /jobs/{job_id}
 """
 from __future__ import annotations
