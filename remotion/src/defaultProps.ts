@@ -40,7 +40,7 @@ const PLACEHOLDER_CAPTIONS = [
 export const DEFAULT_PROPS: PackageProps = {
   tone: "dark",
   title: "The Ghost Orchid",
-  author: "David Baldacci",
+  subtitle: "David Baldacci",
   cardSeconds: 2,
   scenes: PLACEHOLDER_SECTIONS.map(({ section, label, durationSeconds }) => ({
     section,

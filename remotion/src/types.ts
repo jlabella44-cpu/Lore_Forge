@@ -42,7 +42,7 @@ export type CaptionWord = z.infer<typeof captionWordSchema>;
 export const packagePropsSchema = z.object({
   tone: toneSchema,
   title: z.string(),
-  author: z.string(),
+  subtitle: z.string(),
   cardSeconds: z.number().default(2),
   scenes: z.array(sceneSchema).min(1),
   audio: z.string().optional(),
@@ -67,7 +67,7 @@ export type ListScene = z.infer<typeof listSceneSchema>;
 export const listPropsSchema = z.object({
   tone: toneSchema,
   title: z.string(),
-  author: z.string(),
+  subtitle: z.string(),
   cardSeconds: z.number().default(2),
   scenes: z.array(listSceneSchema).min(1),
   audio: z.string().optional(),

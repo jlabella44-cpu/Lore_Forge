@@ -4,18 +4,18 @@ import type { Theme } from "../theme";
 
 export function IntroCard({
   title,
-  author,
+  subtitle,
   theme,
 }: {
   title: string;
-  author: string;
+  subtitle: string;
   theme: Theme;
 }) {
   const frame = useCurrentFrame();
   const { fps } = useVideoConfig();
 
   const titleIn = spring({ frame, fps, config: { damping: 18 } });
-  const authorFade = interpolate(frame, [fps * 0.3, fps * 0.8], [0, 1], {
+  const subtitleFade = interpolate(frame, [fps * 0.3, fps * 0.8], [0, 1], {
     extrapolateRight: "clamp",
   });
 
@@ -47,11 +47,11 @@ export function IntroCard({
           fontFamily: theme.bodyFont,
           fontSize: 42,
           color: theme.accent,
-          opacity: authorFade,
+          opacity: subtitleFade,
           letterSpacing: 1,
         }}
       >
-        {author}
+        {subtitle}
       </div>
     </AbsoluteFill>
   );

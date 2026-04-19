@@ -244,7 +244,7 @@ def _render_inner(package, item, scenes_in, tone, work_dir, ctx, composition, on
         props: dict = {
             "tone": tone,
             "title": item.title,
-            "author": item.subtitle,
+            "subtitle": item.subtitle,
             "cardSeconds": card_seconds,
             "scenes": scene_props,
             "audio": f"{base_url}/narration.mp3",

@@ -24,7 +24,7 @@ import type { ListProps, ListScene } from "./types";
 export const LoreForgeList: React.FC<ListProps> = ({
   tone,
   title,
-  author,
+  subtitle,
   cardSeconds,
   scenes,
   audio,
@@ -47,7 +47,7 @@ export const LoreForgeList: React.FC<ListProps> = ({
     <AbsoluteFill style={{ backgroundColor: theme.background }}>
       {/* Intro */}
       <Sequence durationInFrames={cardFrames}>
-        <IntroCard title={title} author={author} theme={theme} />
+        <IntroCard title={title} subtitle={subtitle} theme={theme} />
       </Sequence>
 
       {/* Book scenes — each with title badge */}

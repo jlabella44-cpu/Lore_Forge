@@ -10,7 +10,7 @@ import type { PackageProps } from "./types";
 export const LoreForge: React.FC<PackageProps> = ({
   tone,
   title,
-  author,
+  subtitle,
   cardSeconds,
   scenes,
   audio,
@@ -35,7 +35,7 @@ export const LoreForge: React.FC<PackageProps> = ({
     <AbsoluteFill style={{ backgroundColor: theme.background }}>
       {/* Intro */}
       <Sequence durationInFrames={cardFrames}>
-        <IntroCard title={title} author={author} theme={theme} />
+        <IntroCard title={title} subtitle={subtitle} theme={theme} />
       </Sequence>
 
       {/* Scene sequence — one image per script section, each held for its
