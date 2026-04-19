@@ -281,11 +281,8 @@ def summary_last_n_days(days: int = 30) -> dict:
                 per_package.append(
                     {
                         "package_id": pkg.id,
-                        # Kept as `book_id`/`book_title` in the API
-                        # response for now — the frontend still uses
-                        # those keys. B7 renames the payload shape.
-                        "book_id": item.id,
-                        "book_title": item.title,
+                        "item_id": item.id,
+                        "item_title": item.title,
                         "revision_number": pkg.revision_number,
                         "cents": round(package_totals[pkg.id], 2),
                     }

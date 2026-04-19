@@ -79,7 +79,7 @@ export default function AnalyticsPage() {
                   className="flex items-center justify-between border-b border-hair py-2 text-sm last:border-0"
                 >
                   <div>
-                    <div className="text-fg-1">{p.book_title}</div>
+                    <div className="text-fg-1">{p.item_title}</div>
                     <div className="mt-0.5 font-mono text-[11px] text-fg-4">
                       pkg #{p.package_id} · rev {p.revision_number}
                     </div>

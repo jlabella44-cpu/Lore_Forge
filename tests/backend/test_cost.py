@@ -228,7 +228,7 @@ def test_summary_last_n_days_groups_by_call_provider_package(client):
     assert len(summary["per_package"]) == 1
     entry = summary["per_package"][0]
     assert entry["package_id"] == pkg_id
-    assert entry["book_title"] == "Sample ContentItem"
+    assert entry["item_title"] == "Sample ContentItem"
     assert entry["cents"] > 0
 
 

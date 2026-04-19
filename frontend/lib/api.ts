@@ -47,8 +47,8 @@ export type CostSummary = {
   by_provider: Record<string, number>;
   per_package: Array<{
     package_id: number;
-    book_id: number;
-    book_title: string;
+    item_id: number;
+    item_title: string;
     revision_number: number;
     cents: number;
   }>;
