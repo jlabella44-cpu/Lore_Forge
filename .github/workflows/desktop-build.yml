@@ -1,0 +1,156 @@
+name: desktop-build
+
+# A7 of the desktop-packaging plan. Manual + tag-driven matrix that
+# produces unsigned .dmg / .msi installers per platform. Code-signing
+# + notarization are out of scope until the user has the cert
+# infrastructure to plug into a follow-up workflow.
+#
+# Triggers:
+#   - workflow_dispatch (manual run from the Actions tab)
+#   - push to tags matching v*  (v0.1.0, v0.2.0-beta, ...)
+#
+# Build steps per runner:
+#   1. Check out the repo
+#   2. Install the platform's native toolchain (Python, Node, Rust,
+#      ffmpeg). Tauri's prerequisites for macOS (Xcode CLT) and
+#      Windows (MSVC + WebView2) are already on the runner image.
+#   3. Generate a placeholder app icon set if one isn't committed.
+#   4. Build the PyInstaller sidecar via scripts/build_sidecar.sh
+#      and stage it under src-tauri/binaries/.
+#   5. Run `npm run tauri:build` from the repo root.
+#   6. Upload the produced installer as an artifact.
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: macOS · arm64
+            artifact_glob: src-tauri/target/release/bundle/dmg/*.dmg
+            artifact_name: lore-forge-macos
+          - os: windows-latest
+            label: Windows · x64
+            artifact_glob: src-tauri/target/release/bundle/msi/*.msi
+            artifact_name: lore-forge-windows
+
+    defaults:
+      run:
+        # Bash on Windows runners is git-bash, which understands the
+        # POSIX scripts/build_sidecar.sh paths + uses MSYS_* uname.
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-build.txt
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Set up Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('src-tauri/Cargo.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install ffmpeg (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ffmpeg
+
+      - name: Install ffmpeg (Windows)
+        if: runner.os == 'Windows'
+        run: choco install ffmpeg-full -y --no-progress
+
+      - name: Install backend deps + PyInstaller
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt -r backend/requirements-build.txt
+
+      - name: Install root deps (Tauri CLI)
+        run: npm ci
+
+      - name: Generate placeholder icons if missing
+        # Tauri's bundler requires icon files. Until the user commits
+        # real ones, generate a solid-color square + run the Tauri CLI
+        # icon generator so the build can proceed.
+        run: |
+          ICONS_DIR=src-tauri/icons
+          if [ ! -f "$ICONS_DIR/icon.png" ]; then
+            mkdir -p "$ICONS_DIR"
+            python - <<'PY'
+          import struct, zlib
+          from pathlib import Path
+          # 1024x1024 solid #1a1a24 PNG, hand-rolled (no Pillow dep).
+          w = h = 1024
+          rgb = (0x1a, 0x1a, 0x24)
+          raw = bytearray()
+          for _ in range(h):
+              raw.append(0)
+              raw.extend(bytes(rgb) * w)
+          comp = zlib.compress(bytes(raw))
+          def chunk(tag, data):
+              return (struct.pack(">I", len(data)) + tag + data
+                      + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
+          sig = b"\x89PNG\r\n\x1a\n"
+          ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+          out = sig + chunk(b"IHDR", ihdr) + chunk(b"IDAT", comp) + chunk(b"IEND", b"")
+          Path("src-tauri/icons/icon.png").write_bytes(out)
+          PY
+            npx --yes @tauri-apps/cli@2 icon "$ICONS_DIR/icon.png"
+          fi
+
+      - name: Build PyInstaller sidecar
+        run: ./scripts/build_sidecar.sh
+
+      - name: Tauri build (unsigned)
+        run: npm run tauri:build
+        env:
+          # Skip code-signing on macOS — no Developer ID cert is wired
+          # up in CI yet. The .app bundle still produces, just unsigned;
+          # users get a Gatekeeper warning on first launch until A7
+          # gains a signing follow-up.
+          APPLE_SIGNING_IDENTITY: ""
+          APPLE_CERTIFICATE: ""
+          # Same on Windows — no Authenticode cert; build emits an
+          # unsigned .msi.
+          TAURI_SIGNING_PRIVATE_KEY: ""
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_glob }}
+          if-no-files-found: error
+          retention-days: 14
