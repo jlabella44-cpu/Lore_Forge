@@ -43,7 +43,7 @@ class TestSeriesCRUD:
         assert data["format"] == "list"
         assert data["series_type"] == "themed_list"
         assert data["status"] == "active"
-        assert data["books"] == []
+        assert data["items"] == []
         assert data["packages"] == []
 
     def test_create_duplicate_slug_409(self, client):
@@ -91,14 +91,14 @@ class TestSeriesCRUD:
         series_id = create.json()["id"]
 
         resp = client.post(
-            f"/series/{series_id}/books",
-            json={"book_ids": book_ids},
+            f"/series/{series_id}/items",
+            json={"item_ids": book_ids},
         )
         assert resp.status_code == 200
-        books = resp.json()["books"]
-        assert len(books) == 3
-        assert books[0]["position"] == 1
-        assert books[2]["position"] == 3
+        items = resp.json()["items"]
+        assert len(items) == 3
+        assert items[0]["position"] == 1
+        assert items[2]["position"] == 3
 
     def test_attach_books_replaces_existing(self, client):
         book_ids = _seed_books(client, 4)
@@ -111,17 +111,17 @@ class TestSeriesCRUD:
 
         # First attach
         client.post(
-            f"/series/{series_id}/books",
-            json={"book_ids": book_ids[:2]},
+            f"/series/{series_id}/items",
+            json={"item_ids": book_ids[:2]},
         )
         # Replace with different set
         resp = client.post(
-            f"/series/{series_id}/books",
-            json={"book_ids": book_ids[2:]},
+            f"/series/{series_id}/items",
+            json={"item_ids": book_ids[2:]},
         )
-        books = resp.json()["books"]
-        assert len(books) == 2
-        assert books[0]["book_id"] == book_ids[2]
+        items = resp.json()["items"]
+        assert len(items) == 2
+        assert items[0]["item_id"] == book_ids[2]
 
     def test_attach_missing_book_404(self, client):
         create = client.post("/series", json={
@@ -131,8 +131,8 @@ class TestSeriesCRUD:
         })
         series_id = create.json()["id"]
         resp = client.post(
-            f"/series/{series_id}/books",
-            json={"book_ids": [9999]},
+            f"/series/{series_id}/items",
+            json={"item_ids": [9999]},
         )
         assert resp.status_code == 404
 
@@ -194,8 +194,8 @@ class TestSeriesGenerate:
         })
         series_id = create.json()["id"]
         client.post(
-            f"/series/{series_id}/books",
-            json={"book_ids": book_ids},
+            f"/series/{series_id}/items",
+            json={"item_ids": book_ids},
         )
 
         fake_dossier = {"setting": {"name": "", "era": "", "atmosphere": ""}}

@@ -71,8 +71,8 @@ export function dollars(cents: number): string {
 // Series
 // ---------------------------------------------------------------------------
 
-export type SeriesBook = {
-  book_id: number;
+export type SeriesItem = {
+  item_id: number;
   position: number;
 };
 
@@ -90,12 +90,12 @@ export type Series = {
   description: string | null;
   format: string;
   series_type: string;
-  source_book_id: number | null;
+  source_item_id: number | null;
   source_author: string | null;
   total_parts: number | null;
   status: string;
   created_at: string | null;
-  books: SeriesBook[];
+  items: SeriesItem[];
   packages: SeriesPackage[];
 };
 

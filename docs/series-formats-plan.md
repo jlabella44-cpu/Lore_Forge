@@ -123,7 +123,7 @@ class VideoFormat(str, Enum):
 
 **Routes** (`backend/app/routers/series.py` — new)
 - `POST /series` — create a Series row
-- `POST /series/{id}/books` — attach books (for list/ranking)
+- `POST /series/{id}/items` — attach items (for list/ranking)
 - `POST /series/{id}/generate` — run pipeline producing N ContentPackages (or 1 list-style package, depending on series_type) with proper `series_id`, `part_number`
 - `GET /series` / `GET /series/{id}` — list/detail
 

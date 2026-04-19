@@ -30,13 +30,13 @@ class CreateSeriesRequest(BaseModel):
     description: str | None = None
     format: str  # VideoFormat value
     series_type: str
-    source_book_id: int | None = None
+    source_item_id: int | None = None
     source_author: str | None = None
     total_parts: int | None = None
 
 
 class AttachBooksRequest(BaseModel):
-    book_ids: list[int]
+    item_ids: list[int]
 
 
 class GenerateSeriesRequest(BaseModel):
@@ -74,13 +74,13 @@ def _series_to_dict(s: Series, db: Session) -> dict:
         "description": s.description,
         "format": s.format,
         "series_type": s.series_type,
-        "source_book_id": s.source_content_item_id,
+        "source_item_id": s.source_content_item_id,
         "source_author": s.source_author,
         "total_parts": s.total_parts,
         "status": s.status,
         "created_at": s.created_at.isoformat() if s.created_at else None,
-        "books": [
-            {"book_id": sb.content_item_id, "position": sb.position}
+        "items": [
+            {"item_id": sb.content_item_id, "position": sb.position}
             for sb in books
         ],
         "packages": [
@@ -112,7 +112,7 @@ def create_series(body: CreateSeriesRequest, db: Session = Depends(get_db)) -> d
         description=body.description,
         format=body.format,
         series_type=body.series_type,
-        source_content_item_id=body.source_book_id,
+        source_content_item_id=body.source_item_id,
         source_author=body.source_author,
         total_parts=body.total_parts,
     )
@@ -140,7 +140,7 @@ def get_series(series_id: int, db: Session = Depends(get_db)) -> dict:
     return _series_to_dict(series, db)
 
 
-@router.post("/{series_id}/books")
+@router.post("/{series_id}/items")
 def attach_books(
     series_id: int,
     body: AttachBooksRequest,
@@ -152,7 +152,7 @@ def attach_books(
 
     # Clear existing attachments and re-attach in order.
     db.query(SeriesBook).filter(SeriesBook.series_id == series_id).delete()
-    for i, item_id in enumerate(body.book_ids, 1):
+    for i, item_id in enumerate(body.item_ids, 1):
         item = db.get(ContentItem, item_id)
         if item is None:
             raise HTTPException(

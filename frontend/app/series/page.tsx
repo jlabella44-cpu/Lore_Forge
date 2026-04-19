@@ -90,7 +90,7 @@ export default function SeriesListPage() {
                           {FORMAT_LABELS[s.format] ?? s.format}
                         </span>
                         <span>
-                          {s.books.length} book{s.books.length !== 1 ? "s" : ""}
+                          {s.items.length} book{s.items.length !== 1 ? "s" : ""}
                         </span>
                         <span>
                           {s.packages.length} package

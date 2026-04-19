@@ -124,7 +124,7 @@ function SeriesDetailContent() {
           <Button
             variant="primary"
             onClick={handleGenerate}
-            disabled={generating || series.books.length === 0}
+            disabled={generating || series.items.length === 0}
           >
             <Play className="h-3.5 w-3.5" />
             {generating ? "Generating…" : "Generate all parts"}
@@ -146,27 +146,27 @@ function SeriesDetailContent() {
 
       <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
         <section>
-          <SectionHead title="Books" count={series.books.length} />
-          {series.books.length === 0 ? (
+          <SectionHead title="Books" count={series.items.length} />
+          {series.items.length === 0 ? (
             <Card className="text-center text-sm text-fg-3">
               <p className="mb-1">No books attached.</p>
               <p className="font-mono text-[11px]">
-                POST /series/{seriesId}/books
+                POST /series/{seriesId}/items
               </p>
             </Card>
           ) : (
             <div className="grid gap-2">
-              {series.books.map((b, i) => (
+              {series.items.map((b, i) => (
                 <a
-                  key={b.book_id}
-                  href={`/item?id=${b.book_id}`}
+                  key={b.item_id}
+                  href={`/item?id=${b.item_id}`}
                   className="flex items-center gap-3.5 rounded-md border border-hair bg-white/[0.02] p-3 transition-colors hover:border-hair-strong hover:bg-white/[0.04]"
                 >
                   <span className="grid h-7 w-7 place-items-center rounded-[5px] bg-white/[0.04] font-mono text-[11px] text-fg-2">
                     {String(i + 1).padStart(2, "0")}
                   </span>
                   <span className="text-[13.5px] text-fg-1">
-                    Book #{b.book_id}
+                    Book #{b.item_id}
                   </span>
                   <span className="ml-auto font-mono text-[11px] text-fg-4">
                     pos {b.position}
