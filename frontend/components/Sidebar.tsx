@@ -38,7 +38,7 @@ export function Sidebar() {
   const [budget, setBudget] = useState<CostSummary["budget"] | null>(null);
 
   useEffect(() => {
-    apiFetch<Array<{ id: number }>>("/books")
+    apiFetch<Array<{ id: number }>>("/items")
       .then((b) => setCounts((c) => ({ ...c, books: b.length })))
       .catch(() => {});
     apiFetch<Array<{ id: number }>>("/series")

@@ -21,10 +21,10 @@ def test_seed_scheduled_when_ffmpeg_missing(client, monkeypatch):
     assert stats["packages_created"] == 1
     assert stats["sample_video_rendered"] is False
 
-    books = client.get("/books").json()
+    books = client.get("/items").json()
     # The fantasy book is the one with the package; find it + verify status.
     fantasy = next(b for b in books if b["genre"] == "fantasy")
-    detail = client.get(f"/books/{fantasy['id']}").json()
+    detail = client.get(f"/items/{fantasy['id']}").json()
     assert detail["status"] == "scheduled"
     pkg = detail["packages"][0]
     assert pkg["rendered_at"] is None
@@ -58,9 +58,9 @@ def test_seed_rendered_when_sample_video_succeeds(client, monkeypatch):
     assert stats["packages_created"] == 1
     assert stats["sample_video_rendered"] is True
 
-    books = client.get("/books").json()
+    books = client.get("/items").json()
     fantasy = next(b for b in books if b["genre"] == "fantasy")
-    detail = client.get(f"/books/{fantasy['id']}").json()
+    detail = client.get(f"/items/{fantasy['id']}").json()
     assert detail["status"] == "rendered"
 
     pkg = detail["packages"][0]

@@ -70,11 +70,11 @@ def test_prune_removes_old_unpublished_renders(client, monkeypatch):
     assert not old["work_dir"].exists()
 
     # Metadata on the package is cleared so the UI stops showing stale stats.
-    detail = client.get(f"/books").json()
+    detail = client.get(f"/items").json()
     # Fetch the package via /books/{id}
     # (we don't know the book id directly, but the test's single row is easy)
     book_id = detail[0]["id"]
-    detail = client.get(f"/books/{book_id}").json()
+    detail = client.get(f"/items/{book_id}").json()
     pkg = detail["packages"][0]
     assert pkg["rendered_at"] is None
     assert pkg["rendered_duration_seconds"] is None
@@ -168,6 +168,6 @@ def test_prune_clears_metadata_even_when_dir_missing(client):
     assert res.json()["freed_bytes"] == 0
 
     # Metadata still cleared.
-    books = client.get("/books").json()
-    detail = client.get(f"/books/{books[0]['id']}").json()
+    books = client.get("/items").json()
+    detail = client.get(f"/items/{books[0]['id']}").json()
     assert detail["packages"][0]["rendered_at"] is None

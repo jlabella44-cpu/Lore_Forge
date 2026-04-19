@@ -102,7 +102,7 @@ def book_id(client):
         patch("app.services.llm.classify_genre", return_value=("thriller", 0.85)),
     ):
         client.post("/discover/run")
-    return client.get("/books").json()[0]["id"]
+    return client.get("/items").json()[0]["id"]
 
 
 @pytest.fixture
@@ -126,7 +126,7 @@ def test_generate_runs_the_four_stage_chain(client, book_id, affiliate_env):
         patch("app.services.llm.generate_scene_prompts", return_value=FAKE_SCENES) as sp,
         patch("app.services.llm.generate_platform_meta", return_value=FAKE_META) as m,
     ):
-        res = client.post(f"/books/{book_id}/generate", json={})
+        res = client.post(f"/items/{book_id}/generate", json={})
 
     assert res.status_code == 200
     assert res.json()["revision_number"] == 1
@@ -149,9 +149,9 @@ def test_generate_persists_all_new_fields(client, book_id, affiliate_env):
         patch("app.services.llm.generate_scene_prompts", return_value=FAKE_SCENES),
         patch("app.services.llm.generate_platform_meta", return_value=FAKE_META),
     ):
-        client.post(f"/books/{book_id}/generate", json={})
+        client.post(f"/items/{book_id}/generate", json={})
 
-    detail = client.get(f"/books/{book_id}").json()
+    detail = client.get(f"/items/{book_id}").json()
     pkg = detail["packages"][0]
 
     # Hook portfolio
@@ -201,7 +201,7 @@ def test_generate_threads_note_into_stage_2_only(client, book_id):
         patch("app.services.llm.generate_scene_prompts", return_value=FAKE_SCENES) as sp,
         patch("app.services.llm.generate_platform_meta", return_value=FAKE_META) as m,
     ):
-        client.post(f"/books/{book_id}/generate", json={"note": "darker hook"})
+        client.post(f"/items/{book_id}/generate", json={"note": "darker hook"})
 
     # Note threads into Stage 2
     assert s.call_args.kwargs["note"] == "darker hook"
@@ -219,15 +219,15 @@ def test_regenerate_increments_revision(client, book_id):
         patch("app.services.llm.generate_scene_prompts", return_value=FAKE_SCENES),
         patch("app.services.llm.generate_platform_meta", return_value=FAKE_META),
     ):
-        r1 = client.post(f"/books/{book_id}/generate", json={}).json()
+        r1 = client.post(f"/items/{book_id}/generate", json={}).json()
         r2 = client.post(
-            f"/books/{book_id}/generate", json={"note": "darker"}
+            f"/items/{book_id}/generate", json={"note": "darker"}
         ).json()
 
     assert r1["revision_number"] == 1
     assert r2["revision_number"] == 2
 
-    pkgs = client.get(f"/books/{book_id}").json()["packages"]
+    pkgs = client.get(f"/items/{book_id}").json()["packages"]
     assert [p["revision_number"] for p in pkgs] == [2, 1]
     # Newer rev carries the note; original doesn't
     by_rev = {p["revision_number"]: p for p in pkgs}
@@ -248,10 +248,10 @@ def test_generate_rollback_on_any_stage_failure(client, book_id):
             side_effect=RuntimeError("Claude exploded mid-script"),
         ),
     ):
-        res = client.post(f"/books/{book_id}/generate", json={})
+        res = client.post(f"/items/{book_id}/generate", json={})
     assert res.status_code == 502
 
-    detail = client.get(f"/books/{book_id}").json()
+    detail = client.get(f"/items/{book_id}").json()
     assert detail["status"] == "discovered"
     assert detail["packages"] == []
 
@@ -267,9 +267,9 @@ def test_generate_omits_affiliate_when_keys_missing(client, book_id):
         patch("app.services.llm.generate_scene_prompts", return_value=FAKE_SCENES),
         patch("app.services.llm.generate_platform_meta", return_value=FAKE_META),
     ):
-        client.post(f"/books/{book_id}/generate", json={})
+        client.post(f"/items/{book_id}/generate", json={})
 
-    pkg = client.get(f"/books/{book_id}").json()["packages"][0]
+    pkg = client.get(f"/items/{book_id}").json()["packages"][0]
     assert pkg["affiliate_amazon"] is None
     assert pkg["affiliate_bookshop"] is None
 
@@ -284,13 +284,13 @@ def test_approve_is_exclusive(client, book_id):
         patch("app.services.llm.generate_scene_prompts", return_value=FAKE_SCENES),
         patch("app.services.llm.generate_platform_meta", return_value=FAKE_META),
     ):
-        r1 = client.post(f"/books/{book_id}/generate", json={}).json()
+        r1 = client.post(f"/items/{book_id}/generate", json={}).json()
         r2 = client.post(
-            f"/books/{book_id}/generate", json={"note": "v2"}
+            f"/items/{book_id}/generate", json={"note": "v2"}
         ).json()
 
     assert client.post(f"/packages/{r2['package_id']}/approve").status_code == 200
-    detail = client.get(f"/books/{book_id}").json()
+    detail = client.get(f"/items/{book_id}").json()
     assert detail["status"] == "scheduled"
     by_rev = {p["revision_number"]: p for p in detail["packages"]}
     assert by_rev[2]["is_approved"] is True
@@ -299,14 +299,14 @@ def test_approve_is_exclusive(client, book_id):
     client.post(f"/packages/{r1['package_id']}/approve")
     by_rev = {
         p["revision_number"]: p
-        for p in client.get(f"/books/{book_id}").json()["packages"]
+        for p in client.get(f"/items/{book_id}").json()["packages"]
     }
     assert by_rev[1]["is_approved"] is True
     assert by_rev[2]["is_approved"] is False
 
 
 def test_generate_and_approve_404s(client):
-    assert client.post("/books/99999/generate").status_code == 404
+    assert client.post("/items/99999/generate").status_code == 404
     assert client.post("/packages/99999/approve").status_code == 404
 
 
@@ -331,9 +331,9 @@ def test_second_generate_reuses_cached_dossier(client, book_id):
         patch("app.services.llm.generate_scene_prompts", return_value=FAKE_SCENES),
         patch("app.services.llm.generate_platform_meta", return_value=FAKE_META),
     ):
-        client.post(f"/books/{book_id}/generate", json={})
+        client.post(f"/items/{book_id}/generate", json={})
         assert dossier_llm.call_count == 1
 
         # Second regen on the same book reads the persisted dossier.
-        client.post(f"/books/{book_id}/generate", json={"note": "darker"})
+        client.post(f"/items/{book_id}/generate", json={"note": "darker"})
         assert dossier_llm.call_count == 1

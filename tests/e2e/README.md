@@ -24,7 +24,7 @@ subsequent runs are fast.
 `happy-path.spec.ts`:
 
 - Dashboard renders the queue heading
-- Dashboard lists books, row-click navigates to `/book?id=1`
+- Dashboard lists books, row-click navigates to `/item?id=1`
 - Book review page renders:
   - Hook portfolio (3 alternatives + "chosen" badge on one)
   - Section-labeled image prompts (Hook / World tease / Emotional pull /

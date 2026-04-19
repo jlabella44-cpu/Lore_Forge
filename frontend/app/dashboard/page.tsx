@@ -73,7 +73,7 @@ export default function DashboardPage() {
     setError(null);
     try {
       const query = includeSkipped ? "?include_skipped=true" : "";
-      setBooks(await apiFetch<Book[]>(`/books${query}`));
+      setBooks(await apiFetch<Book[]>(`/items${query}`));
     } catch (e) {
       setError(String(e));
     }
@@ -105,7 +105,7 @@ export default function DashboardPage() {
         enqueued: number;
         eligible_count: number;
         job_ids: number[];
-      }>("/books/generate-all", { method: "POST" });
+      }>("/items/generate-all", { method: "POST" });
 
       if (res.enqueued === 0) {
         setError("No eligible books — every discovered book already has a package.");
@@ -139,7 +139,7 @@ export default function DashboardPage() {
   const toggleSkip = async (book: Book) => {
     const action = book.status === "skipped" ? "unskip" : "skip";
     try {
-      await apiFetch(`/books/${book.id}/${action}`, { method: "POST" });
+      await apiFetch(`/items/${book.id}/${action}`, { method: "POST" });
       await refresh();
     } catch (e) {
       setError(String(e));
@@ -404,7 +404,7 @@ function BookTable({
               </td>
               <td className="px-4 py-3">
                 <Link
-                  href={`/book?id=${b.id}`}
+                  href={`/item?id=${b.id}`}
                   className="text-fg-0 transition-colors hover:text-accent"
                 >
                   {b.title}
@@ -426,7 +426,7 @@ function BookTable({
                     {b.status === "skipped" ? "Unskip" : "Skip"}
                   </Button>
                   <Link
-                    href={`/book?id=${b.id}`}
+                    href={`/item?id=${b.id}`}
                     className="rounded-md bg-white/[0.03] px-2.5 py-[5px] text-xs font-medium text-fg-1 transition-colors hover:border-hair-strong hover:bg-white/[0.07]"
                   >
                     Open
@@ -456,7 +456,7 @@ function BookGrid({ books }: { books: Book[] }) {
       style={{ gridTemplateColumns: "repeat(auto-fill, minmax(168px, 1fr))" }}
     >
       {books.map((b) => (
-        <Link key={b.id} href={`/book?id=${b.id}`} className="group block">
+        <Link key={b.id} href={`/item?id=${b.id}`} className="group block">
           <div className="mb-2.5 overflow-hidden rounded-md border border-hair transition-transform duration-200 group-hover:-translate-y-[3px] group-hover:shadow-[0_6px_30px_rgba(0,0,0,0.4)]">
             <BookCover coverUrl={b.cover_url} title={b.title} author={b.author} />
           </div>

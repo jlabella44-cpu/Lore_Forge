@@ -364,17 +364,17 @@ def test_generate_enqueue_returns_429_when_over_budget(client, monkeypatch):
     ):
         client.post("/discover/run")
 
-    book_id = client.get("/books").json()[0]["id"]
+    book_id = client.get("/items").json()[0]["id"]
 
     # Push spending over the cap
     cost.record_image(provider="wanx", model="wanx2.1-t2i-turbo", count=10)  # 20¢
 
     # Both sync and async paths should reject with 429
-    res_sync = client.post(f"/books/{book_id}/generate", json={})
+    res_sync = client.post(f"/items/{book_id}/generate", json={})
     assert res_sync.status_code == 429
     assert "budget" in res_sync.json()["detail"].lower()
 
-    res_async = client.post(f"/books/{book_id}/generate?async=true", json={})
+    res_async = client.post(f"/items/{book_id}/generate?async=true", json={})
     assert res_async.status_code == 429
 
 

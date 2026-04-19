@@ -158,7 +158,7 @@ def book_id(client):
         patch("app.services.llm.classify_genre", return_value=("scifi", 0.9)),
     ):
         client.post("/discover/run")
-    return client.get("/books").json()[0]["id"]
+    return client.get("/items").json()[0]["id"]
 
 
 @pytest.fixture
@@ -185,7 +185,7 @@ def test_pipeline_regenerates_script_when_gate_fails(
         patch("app.services.llm.generate_scene_prompts", return_value=_FAKE_SCENES),
         patch("app.services.llm.generate_platform_meta", return_value=_FAKE_META),
     ):
-        res = client.post(f"/books/{book_id}/generate", json={})
+        res = client.post(f"/items/{book_id}/generate", json={})
 
     assert res.status_code == 200
     # Gate regenerated exactly once.
@@ -197,7 +197,7 @@ def test_pipeline_regenerates_script_when_gate_fails(
     assert "unputdownable" in retry_note
 
     # The shipped script is the clean one.
-    pkg = client.get(f"/books/{book_id}").json()["packages"][0]
+    pkg = client.get(f"/items/{book_id}").json()["packages"][0]
     assert "glowing coral lattice" in pkg["script"]
 
 
@@ -216,7 +216,7 @@ def test_pipeline_skips_gate_when_flag_off(client, book_id):
         patch("app.services.llm.generate_scene_prompts", return_value=_FAKE_SCENES),
         patch("app.services.llm.generate_platform_meta", return_value=_FAKE_META),
     ):
-        client.post(f"/books/{book_id}/generate", json={})
+        client.post(f"/items/{book_id}/generate", json={})
 
     assert script_mock.call_count == 1
 
@@ -237,6 +237,6 @@ def test_pipeline_passes_gate_on_first_try_does_not_regen(
         patch("app.services.llm.generate_scene_prompts", return_value=_FAKE_SCENES),
         patch("app.services.llm.generate_platform_meta", return_value=_FAKE_META),
     ):
-        client.post(f"/books/{book_id}/generate", json={})
+        client.post(f"/items/{book_id}/generate", json={})
 
     assert script_mock.call_count == 1

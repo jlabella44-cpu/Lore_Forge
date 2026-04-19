@@ -71,21 +71,21 @@ def package_id(client):
         patch("app.services.llm.classify_genre", return_value=("thriller", 0.85)),
     ):
         client.post("/discover/run")
-    book_id = client.get("/books").json()[0]["id"]
+    book_id = client.get("/items").json()[0]["id"]
     with (
         patch("app.services.llm.generate_hooks", return_value=FAKE_HOOKS),
         patch("app.services.llm.generate_script", return_value=FAKE_SCRIPT),
         patch("app.services.llm.generate_scene_prompts", return_value=FAKE_SCENES),
         patch("app.services.llm.generate_platform_meta", return_value=FAKE_META),
     ):
-        return client.post(f"/books/{book_id}/generate", json={}).json()["package_id"]
+        return client.post(f"/items/{book_id}/generate", json={}).json()["package_id"]
 
 
 def _pkg(client, book_id=None, package_id=None):
     """Pull the package dict from /books/{id}."""
     if book_id is None:
-        book_id = client.get("/books").json()[0]["id"]
-    packages = client.get(f"/books/{book_id}").json()["packages"]
+        book_id = client.get("/items").json()[0]["id"]
+    packages = client.get(f"/items/{book_id}").json()["packages"]
     if package_id is not None:
         return next(p for p in packages if p["id"] == package_id)
     return packages[0]

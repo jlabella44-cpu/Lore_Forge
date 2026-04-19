@@ -137,14 +137,14 @@ def approved_package(client, tmp_path, monkeypatch):
     ):
         client.post("/discover/run")
 
-    book_id = client.get("/books").json()[0]["id"]
+    book_id = client.get("/items").json()[0]["id"]
     with (
         patch("app.services.llm.generate_hooks", return_value=hooks),
         patch("app.services.llm.generate_script", return_value=script_pkg),
         patch("app.services.llm.generate_scene_prompts", return_value=scene_pkg),
         patch("app.services.llm.generate_platform_meta", return_value=meta_pkg),
     ):
-        gen = client.post(f"/books/{book_id}/generate", json={}).json()
+        gen = client.post(f"/items/{book_id}/generate", json={}).json()
 
     client.post(f"/packages/{gen['package_id']}/approve")
     return {"book_id": book_id, "package_id": gen["package_id"], "tmp": tmp_path}
@@ -256,7 +256,7 @@ def test_render_orchestrates_tts_images_and_remotion(client, approved_package):
     assert (work / "out.mp4").exists()
 
     # Captions persisted to the package
-    detail = client.get(f"/books/{approved_package['book_id']}").json()
+    detail = client.get(f"/items/{approved_package['book_id']}").json()
     approved = next(p for p in detail["packages"] if p["id"] == pid)
     assert approved["captions"] == fake_captions
 
@@ -300,7 +300,7 @@ def test_render_requires_approval(client, approved_package):
         patch("app.services.llm.generate_scene_prompts", return_value=tiny_scenes),
         patch("app.services.llm.generate_platform_meta", return_value=tiny_meta),
     ):
-        gen2 = client.post(f"/books/{book_id}/generate", json={"note": "v2"}).json()
+        gen2 = client.post(f"/items/{book_id}/generate", json={"note": "v2"}).json()
 
     # Only v1 is approved; try rendering v2.
     res = client.post(f"/packages/{gen2['package_id']}/render")
@@ -427,7 +427,7 @@ def test_render_persists_metadata_and_flips_needs_rerender(client, approved_pack
     book_id = approved_package["book_id"]
 
     # Before render: needs_rerender = True because rendered_at is None.
-    detail = client.get(f"/books/{book_id}").json()
+    detail = client.get(f"/items/{book_id}").json()
     pkg = next(p for p in detail["packages"] if p["id"] == pid)
     assert pkg["needs_rerender"] is True
     assert pkg["rendered_at"] is None
@@ -465,7 +465,7 @@ def test_render_persists_metadata_and_flips_needs_rerender(client, approved_pack
         assert client.post(f"/packages/{pid}/render").status_code == 200
 
     # After render: all four fields populated; hash matches current narration.
-    detail = client.get(f"/books/{book_id}").json()
+    detail = client.get(f"/items/{book_id}").json()
     pkg = next(p for p in detail["packages"] if p["id"] == pid)
     assert pkg["needs_rerender"] is False
     assert pkg["rendered_at"] is not None
@@ -482,7 +482,7 @@ def test_render_persists_metadata_and_flips_needs_rerender(client, approved_pack
     finally:
         db.close()
 
-    detail = client.get(f"/books/{book_id}").json()
+    detail = client.get(f"/items/{book_id}").json()
     pkg = next(p for p in detail["packages"] if p["id"] == pid)
     assert pkg["needs_rerender"] is True
     # But the persisted render stats from last time stay — the UI can still
@@ -528,7 +528,7 @@ def test_render_transitions_book_scheduled_to_rendered(client, approved_package,
     pid = approved_package["package_id"]
     book_id = approved_package["book_id"]
 
-    pre = client.get(f"/books/{book_id}").json()
+    pre = client.get(f"/items/{book_id}").json()
     assert pre["status"] == "scheduled"
 
     fake_tts, fake_image, fake_run = _fake_render_triplet(tmp_path)
@@ -541,7 +541,7 @@ def test_render_transitions_book_scheduled_to_rendered(client, approved_package,
     ):
         assert client.post(f"/packages/{pid}/render").status_code == 200
 
-    post = client.get(f"/books/{book_id}").json()
+    post = client.get(f"/items/{book_id}").json()
     assert post["status"] == "rendered"
 
 
@@ -573,5 +573,5 @@ def test_rerender_does_not_clobber_published_status(client, approved_package, tm
     ):
         assert client.post(f"/packages/{pid}/render").status_code == 200
 
-    post = client.get(f"/books/{book_id}").json()
+    post = client.get(f"/items/{book_id}").json()
     assert post["status"] == "published"

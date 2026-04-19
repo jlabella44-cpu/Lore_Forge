@@ -69,14 +69,14 @@ def rendered_package(client, tmp_path, monkeypatch):
     ):
         client.post("/discover/run")
 
-    book_id = client.get("/books").json()[0]["id"]
+    book_id = client.get("/items").json()[0]["id"]
     with (
         patch("app.services.llm.generate_hooks", return_value=hooks_pkg),
         patch("app.services.llm.generate_script", return_value=script_pkg),
         patch("app.services.llm.generate_scene_prompts", return_value=scene_pkg),
         patch("app.services.llm.generate_platform_meta", return_value=meta_pkg),
     ):
-        gen = client.post(f"/books/{book_id}/generate", json={}).json()
+        gen = client.post(f"/items/{book_id}/generate", json={}).json()
 
     package_id = gen["package_id"]
     client.post(f"/packages/{package_id}/approve")
@@ -109,7 +109,7 @@ def test_publish_yt_shorts_success(client, rendered_package):
 
     # ContentItem status flipped to published
     bid = rendered_package["book_id"]
-    assert client.get(f"/books/{bid}").json()["status"] == "published"
+    assert client.get(f"/items/{bid}").json()["status"] == "published"
 
 
 def test_publish_tiktok_success(client, rendered_package):

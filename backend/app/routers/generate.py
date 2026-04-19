@@ -24,10 +24,10 @@ router = APIRouter()
 
 
 # ---------------------------------------------------------------------------
-# POST /books/{id}/generate[?async=true]
+# POST /items/{id}/generate[?async=true]
 # ---------------------------------------------------------------------------
 
-@router.post("/books/generate-all")
+@router.post("/items/generate-all")
 def generate_all(
     response: Response = None,  # type: ignore[assignment]
     db: Session = Depends(get_db),
@@ -77,7 +77,7 @@ def generate_all(
     }
 
 
-@router.post("/books/{book_id}/generate")
+@router.post("/items/{book_id}/generate")
 def generate_package(
     book_id: int,
     payload: dict | None = None,
@@ -128,7 +128,7 @@ def render_all(
     """Enqueue an async render for every book in `scheduled` (approved but
     not yet rendered). Returns 202 + job_ids.
 
-    Parallel to `/books/generate-all`: hits the daily-budget guardrail once
+    Parallel to `/items/generate-all`: hits the daily-budget guardrail once
     up front, picks candidates in score order, enqueues each via the
     existing render worker. Books in `rendered` or `published` are skipped
     — re-rendering happens one package at a time via the per-package

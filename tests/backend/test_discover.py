@@ -39,7 +39,7 @@ def test_discover_creates_books(client):
     assert body["new_source_rows"] == 2
     assert body["per_source"] == {"nyt": {"fetched": 2}}
 
-    books = client.get("/books").json()
+    books = client.get("/items").json()
     assert len(books) == 2
     by_title = {b["title"]: b for b in books}
     assert by_title["The Ghost Orchid"]["genre"] == "thriller"
@@ -66,7 +66,7 @@ def test_discover_dedupes_on_isbn(client):
     assert body["created"] == 0
     assert body["skipped"] == 2
     assert body["new_source_rows"] == 0
-    assert len(client.get("/books").json()) == 2
+    assert len(client.get("/items").json()) == 2
 
 
 def test_discover_tolerates_classify_failure(client):
@@ -82,7 +82,7 @@ def test_discover_tolerates_classify_failure(client):
 
     assert res.status_code == 200
     assert res.json()["created"] == 1
-    book = client.get("/books").json()[0]
+    book = client.get("/items").json()[0]
     assert book["genre"] is None  # classifier failed; user overrides later
 
 
@@ -153,7 +153,7 @@ def test_discover_multi_source_adds_source_rows_to_existing_book(client, monkeyp
     assert body["new_source_rows"] == 2  # two ContentItemSource rows
 
     # Aggregate score: nyt(2.0) + goodreads(2.0), both fresh → 4.0
-    books = client.get("/books").json()
+    books = client.get("/items").json()
     assert len(books) == 1
     assert books[0]["score"] == 4.0
 

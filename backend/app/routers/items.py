@@ -1,10 +1,9 @@
-"""ContentItem CRUD — the renamed successor of the books router.
+"""ContentItem CRUD.
 
-URL path stays at `/books` for now — the frontend hasn't caught up to
-the ContentItem rename yet. B7 neutralizes the URL prefix and the
-response keys (`author` → `subtitle`, `book_id` → `content_item_id`).
-Until then, the API shape matches the pre-B2 contract so the dashboard
-keeps working unchanged.
+URL path is `/items` after B7. Response keys still use the Books-era
+names (`author` for subtitle, `book_id` / `book_title` in cost rollups)
+so the frontend doesn't need a coordinated payload-shape rename in
+the same commit; that's a follow-up cleanup.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session

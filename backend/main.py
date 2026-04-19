@@ -69,7 +69,7 @@ def health() -> dict[str, str]:
 
 
 app.include_router(discover.router, prefix="/discover", tags=["discover"])
-app.include_router(items.router, prefix="/books", tags=["items"])
+app.include_router(items.router, prefix="/items", tags=["items"])
 app.include_router(generate.router, tags=["generate"])
 app.include_router(publish.router, prefix="/publish", tags=["publish"])
 app.include_router(analytics.router, prefix="/analytics", tags=["analytics"])

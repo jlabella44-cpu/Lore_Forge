@@ -101,7 +101,7 @@ type TabKey = "script" | "hooks" | "scenes" | "narration" | "meta";
 // ---------------------------------------------------------------------------
 
 // Static export can't pre-render `/book/[id]`, so the detail page is
-// reached as `/book?id=123` and the ID is read from the query string.
+// reached as `/item?id=123` and the ID is read from the query string.
 // `useSearchParams()` triggers Next's CSR bailout during prerender, which
 // requires a Suspense boundary at the module's default export.
 export default function BookReviewPage() {
@@ -134,7 +134,7 @@ function BookReviewContent() {
   const refresh = async () => {
     setError(null);
     try {
-      const data = await apiFetch<BookDetail>(`/books/${bookId}`);
+      const data = await apiFetch<BookDetail>(`/items/${bookId}`);
       setBook(data);
       setActiveId((prev) => prev ?? data.packages[0]?.id ?? null);
     } catch (e) {
@@ -169,7 +169,7 @@ function BookReviewContent() {
     setError(null);
     try {
       const queued = await apiFetch<{ job_id: number; status: string }>(
-        `/books/${bookId}/generate?async=true`,
+        `/items/${bookId}/generate?async=true`,
         { method: "POST", body: JSON.stringify({ note: note ?? null }) },
       );
       const job = await pollJob(queued.job_id, (j) =>
@@ -1271,7 +1271,7 @@ function DossierEditor({
     setSaving(true);
     setSaveError(null);
     try {
-      await apiFetch(`/books/${bookId}`, {
+      await apiFetch(`/items/${bookId}`, {
         method: "PATCH",
         body: JSON.stringify({ dossier: parsed }),
       });
@@ -1289,7 +1289,7 @@ function DossierEditor({
     setSaving(true);
     setSaveError(null);
     try {
-      await apiFetch(`/books/${bookId}`, {
+      await apiFetch(`/items/${bookId}`, {
         method: "PATCH",
         body: JSON.stringify({ dossier: null }),
       });

@@ -159,7 +159,7 @@ function SeriesDetailContent() {
               {series.books.map((b, i) => (
                 <a
                   key={b.book_id}
-                  href={`/book?id=${b.book_id}`}
+                  href={`/item?id=${b.book_id}`}
                   className="flex items-center gap-3.5 rounded-md border border-hair bg-white/[0.02] p-3 transition-colors hover:border-hair-strong hover:bg-white/[0.04]"
                 >
                   <span className="grid h-7 w-7 place-items-center rounded-[5px] bg-white/[0.04] font-mono text-[11px] text-fg-2">

@@ -72,7 +72,7 @@ def seeded_book(client):
         patch("app.services.llm.classify_genre", return_value=("thriller", 0.85)),
     ):
         client.post("/discover/run")
-    return client.get("/books").json()[0]["id"]
+    return client.get("/items").json()[0]["id"]
 
 
 # --- generate -------------------------------------------------------------
@@ -85,7 +85,7 @@ def test_generate_async_returns_202_and_job_id(client, seeded_book, inline_jobs)
         patch("app.services.llm.generate_scene_prompts", return_value=FAKE_SCENES),
         patch("app.services.llm.generate_platform_meta", return_value=FAKE_META),
     ):
-        res = client.post(f"/books/{seeded_book}/generate?async=true", json={})
+        res = client.post(f"/items/{seeded_book}/generate?async=true", json={})
 
     assert res.status_code == 202
     body = res.json()
@@ -101,7 +101,7 @@ def test_generate_async_completes_and_result_is_polled(client, seeded_book, inli
         patch("app.services.llm.generate_platform_meta", return_value=FAKE_META),
     ):
         job_id = client.post(
-            f"/books/{seeded_book}/generate?async=true", json={}
+            f"/items/{seeded_book}/generate?async=true", json={}
         ).json()["job_id"]
 
     # With the inline_jobs hook, the worker ran before the response returned,
@@ -117,7 +117,7 @@ def test_generate_async_completes_and_result_is_polled(client, seeded_book, inli
     assert job["finished_at"] is not None
 
     # ContentItem status flipped to review (same as the sync path)
-    assert client.get(f"/books/{seeded_book}").json()["status"] == "review"
+    assert client.get(f"/items/{seeded_book}").json()["status"] == "review"
 
 
 def test_generate_async_records_stage_progress(client, seeded_book, inline_jobs):
@@ -129,7 +129,7 @@ def test_generate_async_records_stage_progress(client, seeded_book, inline_jobs)
         patch("app.services.llm.generate_platform_meta", return_value=FAKE_META),
     ):
         job_id = client.post(
-            f"/books/{seeded_book}/generate?async=true", json={}
+            f"/items/{seeded_book}/generate?async=true", json={}
         ).json()["job_id"]
 
     job = client.get(f"/jobs/{job_id}").json()
@@ -143,7 +143,7 @@ def test_generate_async_captures_failure(client, seeded_book, inline_jobs):
         "app.services.llm.generate_hooks",
         side_effect=RuntimeError("Claude exploded"),
     ):
-        res = client.post(f"/books/{seeded_book}/generate?async=true", json={})
+        res = client.post(f"/items/{seeded_book}/generate?async=true", json={})
     assert res.status_code == 202
     job_id = res.json()["job_id"]
 
@@ -152,7 +152,7 @@ def test_generate_async_captures_failure(client, seeded_book, inline_jobs):
     assert "Claude exploded" in job["error"]
 
     # ContentItem status was rolled back from "generating" to prior "discovered"
-    assert client.get(f"/books/{seeded_book}").json()["status"] == "discovered"
+    assert client.get(f"/items/{seeded_book}").json()["status"] == "discovered"
 
 
 def test_generate_sync_path_still_works(client, seeded_book):
@@ -163,7 +163,7 @@ def test_generate_sync_path_still_works(client, seeded_book):
         patch("app.services.llm.generate_scene_prompts", return_value=FAKE_SCENES),
         patch("app.services.llm.generate_platform_meta", return_value=FAKE_META),
     ):
-        res = client.post(f"/books/{seeded_book}/generate", json={})
+        res = client.post(f"/items/{seeded_book}/generate", json={})
 
     assert res.status_code == 200
     assert res.json()["revision_number"] == 1
@@ -184,7 +184,7 @@ def approved_package(client, seeded_book, tmp_path, monkeypatch):
         patch("app.services.llm.generate_scene_prompts", return_value=FAKE_SCENES),
         patch("app.services.llm.generate_platform_meta", return_value=FAKE_META),
     ):
-        gen = client.post(f"/books/{seeded_book}/generate", json={}).json()
+        gen = client.post(f"/items/{seeded_book}/generate", json={}).json()
     client.post(f"/packages/{gen['package_id']}/approve")
     return gen["package_id"]
 
@@ -304,7 +304,7 @@ def test_generate_all_enqueues_only_discovered_books_without_packages(
         client.post("/discover/run")
 
     # Generate a package for book A so it's no longer eligible.
-    books = client.get("/books").json()
+    books = client.get("/items").json()
     book_a = next(b for b in books if b["title"] == "ContentItem A")
     with (
         patch("app.services.llm.generate_hooks", return_value=FAKE_HOOKS),
@@ -312,7 +312,7 @@ def test_generate_all_enqueues_only_discovered_books_without_packages(
         patch("app.services.llm.generate_scene_prompts", return_value=FAKE_SCENES),
         patch("app.services.llm.generate_platform_meta", return_value=FAKE_META),
     ):
-        client.post(f"/books/{book_a['id']}/generate", json={})
+        client.post(f"/items/{book_a['id']}/generate", json={})
 
     # Now batch — should pick up B and C but not A.
     with (
@@ -321,7 +321,7 @@ def test_generate_all_enqueues_only_discovered_books_without_packages(
         patch("app.services.llm.generate_scene_prompts", return_value=FAKE_SCENES),
         patch("app.services.llm.generate_platform_meta", return_value=FAKE_META),
     ):
-        res = client.post("/books/generate-all")
+        res = client.post("/items/generate-all")
 
     assert res.status_code == 202
     body = res.json()
@@ -353,14 +353,14 @@ def test_generate_all_respects_budget_guardrail(client, monkeypatch):
     ):
         client.post("/discover/run")
 
-    res = client.post("/books/generate-all")
+    res = client.post("/items/generate-all")
     assert res.status_code == 429
     assert "budget" in res.json()["detail"].lower()
 
 
 def test_generate_all_with_empty_queue_returns_zero(client):
     """Empty eligible list returns 202 + enqueued=0 (not an error)."""
-    res = client.post("/books/generate-all")
+    res = client.post("/items/generate-all")
     assert res.status_code == 202
     assert res.json()["enqueued"] == 0
     assert res.json()["job_ids"] == []
@@ -400,9 +400,9 @@ def _seed_books_for_batch_render(client, statuses: list[str]) -> list[int]:
         patch("app.services.llm.generate_platform_meta", return_value=FAKE_META),
     ):
         for hit in nyt_hits:
-            books = client.get("/books").json()
+            books = client.get("/items").json()
             book = next(b for b in books if b["title"] == hit["title"])
-            gen = client.post(f"/books/{book['id']}/generate", json={}).json()
+            gen = client.post(f"/items/{book['id']}/generate", json={}).json()
             client.post(f"/packages/{gen['package_id']}/approve")
             package_ids.append(gen["package_id"])
 
