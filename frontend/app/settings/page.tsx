@@ -98,6 +98,18 @@ export default function SettingsPage() {
         lede="Provider keys, routing, and the rolling 24h spend guardrail."
       />
 
+      <div className="-mt-2 mb-6 flex items-center gap-3 text-[12.5px] text-fg-3">
+        <span className="font-mono text-[10.5px] uppercase tracking-[0.14em]">
+          More
+        </span>
+        <a
+          href="/settings/profiles"
+          className="text-fg-2 underline decoration-hair-strong underline-offset-4 transition-colors hover:text-fg-0 hover:decoration-accent"
+        >
+          Content profiles →
+        </a>
+      </div>
+
       {error && (
         <div className="mb-6 rounded-lg border border-err/30 bg-err-soft p-4 text-sm text-[oklch(90%_0.12_25)]">
           {error}

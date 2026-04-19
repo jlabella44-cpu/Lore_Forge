@@ -40,6 +40,13 @@ export function rendersUrl(packageId: number, filename = "out.mp4"): string {
   return `${baseUrl()}/renders/${packageId}/${filename}`;
 }
 
+/** Absolute URL for a backend path. Used when an anchor's `href` needs
+ *  to hit the API directly — e.g. the YAML export download on the
+ *  profiles page. Prefer `apiFetch` for normal JSON requests. */
+export function apiUrl(path: string): string {
+  return `${baseUrl()}${path}`;
+}
+
 export type CostSummary = {
   total_cents: number;
   total_usd: string;
@@ -66,6 +73,36 @@ export type CostSummary = {
 export function dollars(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`;
 }
+
+// ---------------------------------------------------------------------------
+// Profiles
+// ---------------------------------------------------------------------------
+
+/** Full profile payload from `GET /profiles/{slug}` (and the list endpoint).
+ *  Mirrors the backend `_profile_to_dict` exactly. The JSON-blob fields
+ *  (prompts, sources_config, etc.) are typed `unknown` because their shape
+ *  is profile-specific and the editor round-trips them as JSON text. */
+export type Profile = {
+  id: number;
+  slug: string;
+  name: string;
+  entity_label: string;
+  description: string | null;
+  active: boolean;
+  sources_config: unknown[];
+  prompts: Record<string, unknown>;
+  prompt_variables: Record<string, unknown>;
+  taxonomy: string[];
+  cta_fields: unknown[];
+  render_tones: Record<string, unknown>;
+  created_at: string | null;
+  updated_at: string | null;
+};
+
+/** PATCH body — every field optional; slug is immutable per backend. */
+export type ProfileUpdate = Partial<
+  Omit<Profile, "id" | "slug" | "active" | "created_at" | "updated_at">
+>;
 
 // ---------------------------------------------------------------------------
 // Series
