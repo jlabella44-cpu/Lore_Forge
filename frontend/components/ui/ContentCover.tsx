@@ -35,12 +35,12 @@ function seedFrom(input: string): number {
 export function ContentCover({
   coverUrl,
   title,
-  author,
+  subtitle,
   className,
 }: {
   coverUrl?: string | null;
   title: string;
-  author: string;
+  subtitle: string;
   className?: string;
 }) {
   if (coverUrl) {
@@ -57,7 +57,7 @@ export function ContentCover({
     );
   }
 
-  const seed = seedFrom(`${title}|${author}`);
+  const seed = seedFrom(`${title}|${subtitle}`);
   const palette = PALETTES[seed % PALETTES.length];
   const motif = MOTIFS[(seed >> 3) % MOTIFS.length];
 
@@ -107,7 +107,7 @@ export function ContentCover({
         </>
       )}
 
-      {/* Title + author, tight */}
+      {/* Title + subtitle, tight */}
       <text
         x={20}
         y={240}
@@ -126,7 +126,7 @@ export function ContentCover({
         fill={palette.ink}
         opacity={0.7}
       >
-        {author.length > 28 ? author.slice(0, 26) + "…" : author}
+        {subtitle.length > 28 ? subtitle.slice(0, 26) + "…" : subtitle}
       </text>
     </svg>
   );

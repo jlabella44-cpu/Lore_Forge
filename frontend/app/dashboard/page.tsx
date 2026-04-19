@@ -16,7 +16,7 @@ import { StatusChip } from "@/components/ui/StatusChip";
 type Book = {
   id: number;
   title: string;
-  author: string;
+  subtitle: string;
   cover_url: string | null;
   genre: string | null;
   genre_source: "override" | "auto";
@@ -156,7 +156,7 @@ export default function DashboardPage() {
     if (!books) return null;
     const q = search.trim().toLowerCase();
     return books.filter((b) => {
-      if (q && !b.title.toLowerCase().includes(q) && !b.author.toLowerCase().includes(q)) {
+      if (q && !b.title.toLowerCase().includes(q) && !b.subtitle.toLowerCase().includes(q)) {
         return false;
       }
       if (genreFilter && (b.genre ?? "") !== genreFilter) return false;
@@ -404,7 +404,7 @@ function BookTable({
                   <ContentCover
                     coverUrl={b.cover_url}
                     title={b.title}
-                    author={b.author}
+                    subtitle={b.subtitle}
                   />
                 </div>
               </td>
@@ -416,7 +416,7 @@ function BookTable({
                   {b.title}
                 </Link>
               </td>
-              <td className="px-4 py-3 text-fg-2">{b.author}</td>
+              <td className="px-4 py-3 text-fg-2">{b.subtitle}</td>
               <td className="px-4 py-3">
                 {b.genre && <Chip variant="plain">{b.genre}</Chip>}
               </td>
@@ -464,12 +464,12 @@ function BookGrid({ books }: { books: Book[] }) {
       {books.map((b) => (
         <Link key={b.id} href={`/item?id=${b.id}`} className="group block">
           <div className="mb-2.5 overflow-hidden rounded-md border border-hair transition-transform duration-200 group-hover:-translate-y-[3px] group-hover:shadow-[0_6px_30px_rgba(0,0,0,0.4)]">
-            <ContentCover coverUrl={b.cover_url} title={b.title} author={b.author} />
+            <ContentCover coverUrl={b.cover_url} title={b.title} subtitle={b.subtitle} />
           </div>
           <div className="line-clamp-2 text-sm text-fg-1 group-hover:text-fg-0">
             {b.title}
           </div>
-          <div className="mt-0.5 truncate text-xs text-fg-3">{b.author}</div>
+          <div className="mt-0.5 truncate text-xs text-fg-3">{b.subtitle}</div>
           <div className="mt-1.5 flex items-center justify-between">
             <StatusChip status={b.status} />
             <span className="font-mono text-[11px] text-fg-3">

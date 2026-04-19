@@ -1,9 +1,9 @@
 """ContentItem CRUD.
 
-URL path is `/items` after B7. Response keys still use the Books-era
-names (`author` for subtitle, `book_id` / `book_title` in cost rollups)
-so the frontend doesn't need a coordinated payload-shape rename in
-the same commit; that's a follow-up cleanup.
+URL path is `/items` after B7. Response keys mirror the model field
+names so a non-book profile (Films, Recipes, News) reads naturally —
+in particular, the legacy `author` key is gone in favour of the
+model's own `subtitle` field.
 """
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -42,7 +42,7 @@ def list_items(
         {
             "id": it.id,
             "title": it.title,
-            "author": it.subtitle,
+            "subtitle": it.subtitle,
             "cover_url": it.cover_url,
             "genre": it.genre_override or it.genre,
             "genre_source": "override" if it.genre_override else "auto",
@@ -70,7 +70,7 @@ def get_item(item_id: int, db: Session = Depends(get_db)) -> dict:
     return {
         "id": item.id,
         "title": item.title,
-        "author": item.subtitle,
+        "subtitle": item.subtitle,
         "isbn": item.isbn,
         "asin": item.asin,
         "description": item.description,

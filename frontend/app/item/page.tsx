@@ -55,7 +55,7 @@ type Package = {
 type BookDetail = {
   id: number;
   title: string;
-  author: string;
+  subtitle: string;
   isbn: string | null;
   genre: string | null;
   genre_override: string | null;
@@ -269,7 +269,7 @@ function BookReviewContent() {
             <ContentCover
               coverUrl={book.cover_url}
               title={book.title}
-              author={book.author}
+              subtitle={book.subtitle}
             />
           </div>
           <div>
@@ -279,7 +279,7 @@ function BookReviewContent() {
             <h1 className="font-serif text-[40px] font-[450] leading-[1.05] tracking-[-0.02em] text-fg-0">
               {book.title}
             </h1>
-            <p className="mt-2 text-sm text-fg-2">by {book.author}</p>
+            <p className="mt-2 text-sm text-fg-2">by {book.subtitle}</p>
             <div className="mt-4 flex items-center gap-3">
               <StatusChip status={book.status} />
               <ScoreBar score={book.score} width={72} />
