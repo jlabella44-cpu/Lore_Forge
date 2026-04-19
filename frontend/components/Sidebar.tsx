@@ -2,11 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BookOpen, Layers, BarChart3, Coins, Flame } from "lucide-react";
 import { apiFetch, type CostSummary } from "@/lib/api";
+import { pluralize, useActiveProfile } from "@/lib/profile";
 
-type CountKey = "books" | "series";
+type CountKey = "items" | "series";
 
 type NavItem = {
   href: string;
@@ -15,31 +16,49 @@ type NavItem = {
   countKey?: CountKey;
 };
 
-const NAV: { section: string; items: NavItem[] }[] = [
-  {
-    section: "Pipeline",
-    items: [
-      { href: "/dashboard", label: "Books", icon: BookOpen, countKey: "books" },
-      { href: "/series", label: "Series", icon: Layers, countKey: "series" },
-    ],
-  },
-  {
-    section: "Operations",
-    items: [
-      { href: "/analytics", label: "Analytics", icon: BarChart3 },
-      { href: "/settings", label: "Costs", icon: Coins },
-    ],
-  },
-];
-
 export function Sidebar() {
   const pathname = usePathname();
+  const profile = useActiveProfile();
   const [counts, setCounts] = useState<Partial<Record<CountKey, number>>>({});
   const [budget, setBudget] = useState<CostSummary["budget"] | null>(null);
 
+  // Re-derive the nav each render so the entity label tracks the
+  // active profile (`Books` for the books profile, `Films` for movies,
+  // etc.). Falls back to `Items` while the /profiles/active fetch is
+  // in flight or if no profile is active.
+  const nav = useMemo<{ section: string; items: NavItem[] }[]>(() => {
+    const entityLabel = profile?.entity_label ?? "Item";
+    return [
+      {
+        section: "Pipeline",
+        items: [
+          {
+            href: "/dashboard",
+            label: pluralize(entityLabel),
+            icon: BookOpen,
+            countKey: "items",
+          },
+          {
+            href: "/series",
+            label: "Series",
+            icon: Layers,
+            countKey: "series",
+          },
+        ],
+      },
+      {
+        section: "Operations",
+        items: [
+          { href: "/analytics", label: "Analytics", icon: BarChart3 },
+          { href: "/settings", label: "Costs", icon: Coins },
+        ],
+      },
+    ];
+  }, [profile]);
+
   useEffect(() => {
     apiFetch<Array<{ id: number }>>("/items")
-      .then((b) => setCounts((c) => ({ ...c, books: b.length })))
+      .then((b) => setCounts((c) => ({ ...c, items: b.length })))
       .catch(() => {});
     apiFetch<Array<{ id: number }>>("/series")
       .then((s) => setCounts((c) => ({ ...c, series: s.length })))
@@ -72,7 +91,7 @@ export function Sidebar() {
 
       {/* Nav sections */}
       <div className="flex-1 overflow-y-auto">
-        {NAV.map(({ section, items }) => (
+        {nav.map(({ section, items }) => (
           <div key={section} className="px-3 pb-1.5 pt-[18px]">
             <div className="px-2.5 pb-2 font-mono text-[10px] uppercase tracking-[0.16em] text-fg-4">
               {section}

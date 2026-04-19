@@ -1,9 +1,11 @@
 import { clsx } from "clsx";
 
 /**
- * Deterministic procedural cover used when a book has no real `cover_url`.
- * 8 palettes × 4 motifs, keyed by a numeric seed so the same book always
- * renders the same cover. Ported from the design handoff's `BookCover`.
+ * Deterministic procedural cover used when a ContentItem has no real
+ * `cover_url`. 8 palettes × 4 motifs, keyed by a numeric seed so the
+ * same item always renders the same cover. Renamed from BookCover in
+ * B7 — the rendered output is identical (the design works just as well
+ * for film posters and recipe thumbnails as for book covers).
  */
 
 const PALETTES: Array<{ bg: string; accent: string; ink: string }> = [
@@ -30,7 +32,7 @@ function seedFrom(input: string): number {
   return h >>> 0;
 }
 
-export function BookCover({
+export function ContentCover({
   coverUrl,
   title,
   author,

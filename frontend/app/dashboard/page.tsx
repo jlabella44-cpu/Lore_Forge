@@ -5,7 +5,8 @@ import { useEffect, useMemo, useState } from "react";
 import { Search, LayoutGrid, List, X } from "lucide-react";
 
 import { apiFetch, pollJob } from "@/lib/api";
-import { BookCover } from "@/components/ui/BookCover";
+import { pluralize, useActiveProfile } from "@/lib/profile";
+import { ContentCover } from "@/components/ui/ContentCover";
 import { Button } from "@/components/ui/Button";
 import { Chip } from "@/components/ui/Chip";
 import { PageHead } from "@/components/ui/PageHead";
@@ -46,6 +47,9 @@ type View = "list" | "grid";
 const VIEW_KEY = "lore-forge:dashboard-view";
 
 export default function DashboardPage() {
+  const profile = useActiveProfile();
+  const entityLabel = profile?.entity_label ?? "Item";
+  const entityPlural = pluralize(entityLabel);
   const [books, setBooks] = useState<Book[] | null>(null);
   const [discovering, setDiscovering] = useState(false);
   const [showSkipped, setShowSkipped] = useState(false);
@@ -108,7 +112,9 @@ export default function DashboardPage() {
       }>("/items/generate-all", { method: "POST" });
 
       if (res.enqueued === 0) {
-        setError("No eligible books — every discovered book already has a package.");
+        setError(
+          `No eligible ${entityPlural.toLowerCase()} — every discovered ${entityLabel.toLowerCase()} already has a package.`,
+        );
         return;
       }
       setBatch({ total: res.enqueued, done: 0, failed: 0 });
@@ -166,8 +172,8 @@ export default function DashboardPage() {
     <div className="mx-auto max-w-[1240px] px-10 pb-20 pt-9">
       <PageHead
         eyebrow="Pipeline · 01"
-        title="Book Queue"
-        lede="Books ranked by score across your enabled sources. Click a title to review its content package."
+        title={`${entityLabel} Queue`}
+        lede={`${entityPlural} ranked by score across your enabled sources. Click a title to review its content package.`}
         actions={
           <>
             <label className="flex cursor-pointer select-none items-center gap-2 text-xs text-fg-2">
@@ -183,7 +189,7 @@ export default function DashboardPage() {
             <Button
               onClick={runBatchGenerate}
               disabled={batch !== null && batch.done < batch.total}
-              title="Generate packages for every discovered book without one."
+              title={`Generate packages for every discovered ${entityLabel.toLowerCase()} without one.`}
             >
               {batch && batch.done < batch.total
                 ? `Generating ${batch.done}/${batch.total}…`
@@ -236,7 +242,7 @@ export default function DashboardPage() {
           Queue is empty. Click <span className="text-fg-0">Run Discovery</span> to fetch the current bestseller list.
         </EmptyState>
       ) : filtered && filtered.length === 0 ? (
-        <EmptyState>No books match your filters.</EmptyState>
+        <EmptyState>No {entityPlural.toLowerCase()} match your filters.</EmptyState>
       ) : view === "list" ? (
         <BookTable books={filtered ?? []} onToggleSkip={toggleSkip} />
       ) : (
@@ -395,7 +401,7 @@ function BookTable({
             >
               <td className="py-3 pl-4 pr-0">
                 <div className="h-10 w-7">
-                  <BookCover
+                  <ContentCover
                     coverUrl={b.cover_url}
                     title={b.title}
                     author={b.author}
@@ -458,7 +464,7 @@ function BookGrid({ books }: { books: Book[] }) {
       {books.map((b) => (
         <Link key={b.id} href={`/item?id=${b.id}`} className="group block">
           <div className="mb-2.5 overflow-hidden rounded-md border border-hair transition-transform duration-200 group-hover:-translate-y-[3px] group-hover:shadow-[0_6px_30px_rgba(0,0,0,0.4)]">
-            <BookCover coverUrl={b.cover_url} title={b.title} author={b.author} />
+            <ContentCover coverUrl={b.cover_url} title={b.title} author={b.author} />
           </div>
           <div className="line-clamp-2 text-sm text-fg-1 group-hover:text-fg-0">
             {b.title}

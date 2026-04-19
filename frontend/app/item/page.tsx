@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Check, Copy, Play } from "lucide-react";
 
 import { apiFetch, dollars, pollJob, rendersUrl, type CostSummary } from "@/lib/api";
-import { BookCover } from "@/components/ui/BookCover";
+import { ContentCover } from "@/components/ui/ContentCover";
 import { Button } from "@/components/ui/Button";
 import { Card, HeroCard } from "@/components/ui/Card";
 import { Chip } from "@/components/ui/Chip";
@@ -266,7 +266,7 @@ function BookReviewContent() {
       <HeroCard className="mb-7">
         <div className="grid grid-cols-[140px_1fr_auto] items-start gap-6">
           <div className="w-[140px]">
-            <BookCover
+            <ContentCover
               coverUrl={book.cover_url}
               title={book.title}
               author={book.author}
