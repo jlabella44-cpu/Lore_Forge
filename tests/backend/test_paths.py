@@ -24,7 +24,10 @@ def test_parent_relative_path_is_resolved(tmp_path):
 
 
 def test_absolute_path_passes_through(tmp_path):
-    abs_path = "/var/lib/lore-forge/renders"
+    # Cross-platform absolute path: tmp_path is guaranteed absolute on any
+    # OS. A hard-coded POSIX path like "/var/lib/..." would be treated as
+    # relative on Windows (no drive letter) and silently anchored.
+    abs_path = str(tmp_path.parent / "elsewhere" / "renders")
     assert resolve_repo_root_path(abs_path, tmp_path) == abs_path
 
 
@@ -58,6 +61,9 @@ def test_settings_validator_anchors_renderer_paths(tmp_path):
     assert Path(s.music_dir) == (REPO_ROOT / "backend/assets/music").resolve()
     assert Path(s.remotion_dir) == (REPO_ROOT / "remotion").resolve()
 
-    # Absolute overrides (production) pass through untouched.
-    prod = Settings(renders_dir="/var/lib/lore-forge/renders")
-    assert prod.renders_dir == "/var/lib/lore-forge/renders"
+    # Absolute overrides (production) pass through untouched. Use tmp_path
+    # for cross-platform absolute form; a POSIX-style "/var/..." is relative
+    # on Windows and would get anchored under REPO_ROOT.
+    abs_renders = str(tmp_path / "prod-renders")
+    prod = Settings(renders_dir=abs_renders)
+    assert prod.renders_dir == abs_renders

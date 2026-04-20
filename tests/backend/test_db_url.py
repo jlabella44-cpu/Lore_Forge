@@ -82,8 +82,13 @@ def test_settings_validator_normalizes_relative_path():
     from app.config import Settings
 
     s = Settings(database_url="sqlite:///./my_custom.sqlite")
-    assert s.database_url.startswith("sqlite:////")
-    assert s.database_url.endswith("my_custom.sqlite")
+    # Semantic assertion, not format-level — on POSIX the URL looks like
+    # `sqlite:////abs/path` (4 slashes), on Windows `sqlite:///C:\abs\path`
+    # (3 slashes + drive). Either way the path portion must be absolute.
+    assert s.database_url.startswith("sqlite:///")
+    path_part = s.database_url[len("sqlite:///"):]
+    assert Path(path_part).is_absolute()
+    assert Path(path_part).name == "my_custom.sqlite"
 
     # Non-sqlite URLs pass through unchanged.
     pg = Settings(database_url="postgresql://u:p@h/d")
