@@ -47,6 +47,28 @@ export function apiUrl(path: string): string {
   return `${baseUrl()}${path}`;
 }
 
+/** POST (or PUT) a non-JSON body — typically YAML for profile import.
+ *  `apiFetch` pins Content-Type: application/json, which would make the
+ *  backend reject a YAML body; this helper lets the caller set its own
+ *  media type. Response is parsed as JSON (every /profiles write-op
+ *  returns the updated profile dict). */
+export async function apiFetchRaw<T>(
+  path: string,
+  body: string,
+  contentType: string,
+  method: "POST" | "PUT" = "POST",
+): Promise<T> {
+  const res = await fetch(`${baseUrl()}${path}`, {
+    method,
+    headers: { "Content-Type": contentType },
+    body,
+  });
+  if (!res.ok) {
+    throw new Error(`API ${res.status}: ${await res.text()}`);
+  }
+  return res.json() as Promise<T>;
+}
+
 export type CostSummary = {
   total_cents: number;
   total_usd: string;
