@@ -48,10 +48,17 @@ def main() -> None:
     sys.stdout.write(f"SIDECAR_READY http://127.0.0.1:{port}\n")
     sys.stdout.flush()
 
+    # Import the ASGI app directly instead of passing `"main:app"` as a
+    # string. PyInstaller's static analysis doesn't trace string-based
+    # imports, so in a bundled sidecar `uvicorn.run("main:app")` fails
+    # with `Error loading ASGI app. Could not import module "main"`.
+    # The static import below pulls `main.py` + all of `app.*` into the
+    # bundle at build time.
     import uvicorn
+    import main as backend_main
 
     uvicorn.run(
-        "main:app",
+        backend_main.app,
         host="127.0.0.1",
         port=port,
         log_level="info",
