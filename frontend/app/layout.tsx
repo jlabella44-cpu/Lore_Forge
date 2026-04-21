@@ -17,7 +17,7 @@ const mono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "Lore Forge",
-  description: "Automated book-content pipeline",
+  description: "Automated short-form content pipeline",
 };
 
 export default function RootLayout({

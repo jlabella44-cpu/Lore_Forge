@@ -13,7 +13,7 @@ import { PageHead } from "@/components/ui/PageHead";
 import { ScoreBar } from "@/components/ui/ScoreBar";
 import { StatusChip } from "@/components/ui/StatusChip";
 
-type Book = {
+type Item = {
   id: number;
   title: string;
   subtitle: string;
@@ -50,7 +50,7 @@ export default function DashboardPage() {
   const profile = useActiveProfile();
   const entityLabel = profile?.entity_label ?? "Item";
   const entityPlural = pluralize(entityLabel);
-  const [books, setBooks] = useState<Book[] | null>(null);
+  const [items, setItems] = useState<Item[] | null>(null);
   const [discovering, setDiscovering] = useState(false);
   const [showSkipped, setShowSkipped] = useState(false);
   const [search, setSearch] = useState("");
@@ -77,7 +77,7 @@ export default function DashboardPage() {
     setError(null);
     try {
       const query = includeSkipped ? "?include_skipped=true" : "";
-      setBooks(await apiFetch<Book[]>(`/items${query}`));
+      setItems(await apiFetch<Item[]>(`/items${query}`));
     } catch (e) {
       setError(String(e));
     }
@@ -142,10 +142,10 @@ export default function DashboardPage() {
     }
   };
 
-  const toggleSkip = async (book: Book) => {
-    const action = book.status === "skipped" ? "unskip" : "skip";
+  const toggleSkip = async (item: Item) => {
+    const action = item.status === "skipped" ? "unskip" : "skip";
     try {
-      await apiFetch(`/items/${book.id}/${action}`, { method: "POST" });
+      await apiFetch(`/items/${item.id}/${action}`, { method: "POST" });
       await refresh();
     } catch (e) {
       setError(String(e));
@@ -153,9 +153,9 @@ export default function DashboardPage() {
   };
 
   const filtered = useMemo(() => {
-    if (!books) return null;
+    if (!items) return null;
     const q = search.trim().toLowerCase();
-    return books.filter((b) => {
+    return items.filter((b) => {
       if (q && !b.title.toLowerCase().includes(q) && !b.subtitle.toLowerCase().includes(q)) {
         return false;
       }
@@ -163,7 +163,7 @@ export default function DashboardPage() {
       if (statusFilter && b.status !== statusFilter) return false;
       return true;
     });
-  }, [books, search, genreFilter, statusFilter]);
+  }, [items, search, genreFilter, statusFilter]);
 
   const activeFilterCount =
     (search ? 1 : 0) + (genreFilter ? 1 : 0) + (statusFilter ? 1 : 0);
@@ -225,7 +225,7 @@ export default function DashboardPage() {
         view={view}
         setView={setView}
         activeFilterCount={activeFilterCount}
-        total={books?.length ?? 0}
+        total={items?.length ?? 0}
         shown={filtered?.length ?? 0}
         onClearFilters={() => {
           setSearch("");
@@ -235,18 +235,18 @@ export default function DashboardPage() {
         showSkipped={showSkipped}
       />
 
-      {books === null ? (
+      {items === null ? (
         <EmptyState>Loading…</EmptyState>
-      ) : books.length === 0 ? (
+      ) : items.length === 0 ? (
         <EmptyState>
           Queue is empty. Click <span className="text-fg-0">Run Discovery</span> to fetch the current bestseller list.
         </EmptyState>
       ) : filtered && filtered.length === 0 ? (
         <EmptyState>No {entityPlural.toLowerCase()} match your filters.</EmptyState>
       ) : view === "list" ? (
-        <BookTable books={filtered ?? []} onToggleSkip={toggleSkip} />
+        <ItemTable items={filtered ?? []} onToggleSkip={toggleSkip} />
       ) : (
-        <BookGrid books={filtered ?? []} />
+        <ItemGrid items={filtered ?? []} />
       )}
     </div>
   );
@@ -370,12 +370,12 @@ function ViewToggle({ view, setView }: { view: View; setView: (v: View) => void 
   );
 }
 
-function BookTable({
-  books,
+function ItemTable({
+  items,
   onToggleSkip,
 }: {
-  books: Book[];
-  onToggleSkip: (book: Book) => void;
+  items: Item[];
+  onToggleSkip: (item: Item) => void;
 }) {
   return (
     <div className="overflow-hidden rounded-lg border border-hair bg-white/[0.015]">
@@ -392,7 +392,7 @@ function BookTable({
           </tr>
         </thead>
         <tbody>
-          {books.map((b) => (
+          {items.map((b) => (
             <tr
               key={b.id}
               className={`border-b border-hair last:border-0 hover:bg-white/[0.025] ${
@@ -455,13 +455,13 @@ function HeaderCell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function BookGrid({ books }: { books: Book[] }) {
+function ItemGrid({ items }: { items: Item[] }) {
   return (
     <div
       className="grid gap-x-5 gap-y-6"
       style={{ gridTemplateColumns: "repeat(auto-fill, minmax(168px, 1fr))" }}
     >
-      {books.map((b) => (
+      {items.map((b) => (
         <Link key={b.id} href={`/item?id=${b.id}`} className="group block">
           <div className="mb-2.5 overflow-hidden rounded-md border border-hair transition-transform duration-200 group-hover:-translate-y-[3px] group-hover:shadow-[0_6px_30px_rgba(0,0,0,0.4)]">
             <ContentCover coverUrl={b.cover_url} title={b.title} subtitle={b.subtitle} />
