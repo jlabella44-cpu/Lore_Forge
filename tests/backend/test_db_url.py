@@ -82,7 +82,13 @@ def test_settings_validator_normalizes_relative_path():
     from app.config import Settings
 
     s = Settings(database_url="sqlite:///./my_custom.sqlite")
-    assert s.database_url.startswith("sqlite:////")
+    # Relative input got resolved to an absolute path. The `sqlite:///`
+    # prefix is fixed, but whether the path portion starts with another
+    # `/` (POSIX) or a drive letter (Windows) varies by platform, so
+    # check the path portion is absolute rather than pinning slash count.
+    assert s.database_url.startswith("sqlite:///")
+    path_portion = s.database_url[len("sqlite:///"):]
+    assert Path(path_portion).is_absolute()
     assert s.database_url.endswith("my_custom.sqlite")
 
     # Non-sqlite URLs pass through unchanged.

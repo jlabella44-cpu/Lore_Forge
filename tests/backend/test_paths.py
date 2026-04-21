@@ -26,7 +26,10 @@ def test_parent_relative_path_is_resolved(tmp_path):
 
 
 def test_absolute_path_passes_through(tmp_path):
-    abs_path = "/var/lib/lore-forge/renders"
+    # Platform-appropriate absolute path. On POSIX this is
+    # `/var/lib/lore-forge/renders`; on Windows it picks up the current
+    # drive anchor (e.g. `C:\var\lib\lore-forge\renders`).
+    abs_path = str(Path(tmp_path.anchor) / "var" / "lib" / "lore-forge" / "renders")
     assert resolve_repo_root_path(abs_path, tmp_path) == abs_path
 
 
@@ -61,8 +64,11 @@ def test_settings_validator_anchors_renderer_paths(tmp_path):
     assert Path(s.remotion_dir) == (REPO_ROOT / "remotion").resolve()
 
     # Absolute overrides (production) pass through untouched.
-    prod = Settings(renders_dir="/var/lib/lore-forge/renders")
-    assert prod.renders_dir == "/var/lib/lore-forge/renders"
+    abs_renders = str(
+        Path(tmp_path.anchor) / "var" / "lib" / "lore-forge" / "renders"
+    )
+    prod = Settings(renders_dir=abs_renders)
+    assert prod.renders_dir == abs_renders
 
 
 # ---------------------------------------------------------------------------

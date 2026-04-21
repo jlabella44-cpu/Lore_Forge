@@ -186,6 +186,10 @@ def test_delete_unknown_secret_404(client, fake_keyring, restore_settings):
 def test_put_providers_updates_subset(client, fake_keyring, restore_settings):
     from app.config import settings
 
+    # Capture baseline so the "untouched" assertion survives .env
+    # overrides (e.g. IMAGE_PROVIDER=dalle while Dashscope is down).
+    baseline_image_provider = settings.image_provider
+
     res = client.put(
         "/settings/providers",
         json={"script_provider": "openai", "renderer_backend": "ffmpeg"},
@@ -194,7 +198,7 @@ def test_put_providers_updates_subset(client, fake_keyring, restore_settings):
     assert settings.script_provider == "openai"
     assert settings.renderer_backend == "ffmpeg"
     # Untouched.
-    assert settings.image_provider == "wanx"
+    assert settings.image_provider == baseline_image_provider
 
     # Snapshot reflects the change.
     snapshot = res.json()
