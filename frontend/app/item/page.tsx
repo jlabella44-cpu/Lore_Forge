@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import { Check, Copy, Play } from "lucide-react";
 
 import { apiFetch, dollars, pollJob, rendersUrl, type CostSummary } from "@/lib/api";
+import { formatBytes, formatDuration, formatTimeAgo } from "@/lib/format";
 import { ContentCover } from "@/components/ui/ContentCover";
 import { Button } from "@/components/ui/Button";
 import { Card, HeroCard } from "@/components/ui/Card";
@@ -55,7 +56,7 @@ type Package = {
   needs_rerender: boolean;
 };
 
-type BookDetail = {
+type ItemDetail = {
   id: number;
   title: string;
   subtitle: string;
@@ -103,22 +104,22 @@ type TabKey = "script" | "hooks" | "scenes" | "narration" | "meta";
 // Page
 // ---------------------------------------------------------------------------
 
-// Static export can't pre-render `/book/[id]`, so the detail page is
+// Static export can't pre-render `/item/[id]`, so the detail page is
 // reached as `/item?id=123` and the ID is read from the query string.
 // `useSearchParams()` triggers Next's CSR bailout during prerender, which
 // requires a Suspense boundary at the module's default export.
-export default function BookReviewPage() {
+export default function ItemReviewPage() {
   return (
     <Suspense fallback={null}>
-      <BookReviewContent />
+      <ItemReviewContent />
     </Suspense>
   );
 }
 
-function BookReviewContent() {
+function ItemReviewContent() {
   const searchParams = useSearchParams();
   const itemId = searchParams.get("id") ?? "";
-  const [book, setBook] = useState<BookDetail | null>(null);
+  const [item, setItem] = useState<ItemDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("script");
@@ -137,8 +138,8 @@ function BookReviewContent() {
   const refresh = async () => {
     setError(null);
     try {
-      const data = await apiFetch<BookDetail>(`/items/${itemId}`);
-      setBook(data);
+      const data = await apiFetch<ItemDetail>(`/items/${itemId}`);
+      setItem(data);
       setActiveId((prev) => prev ?? data.packages[0]?.id ?? null);
     } catch (e) {
       setError(String(e));
@@ -243,7 +244,7 @@ function BookReviewContent() {
     }
   };
 
-  if (!book) {
+  if (!item) {
     return (
       <div className="mx-auto max-w-[1240px] px-10 pb-20 pt-9">
         <Crumb href="/dashboard" label="Queue" />
@@ -255,9 +256,9 @@ function BookReviewContent() {
   }
 
   const effectiveGenre =
-    book.genre_override || book.genre || "uncategorized";
+    item.genre_override || item.genre || "uncategorized";
   const active =
-    book.packages.find((p) => p.id === activeId) ?? book.packages[0] ?? null;
+    item.packages.find((p) => p.id === activeId) ?? item.packages[0] ?? null;
   const costCents =
     costs?.per_package.find((p) => p.package_id === active?.id)?.cents ?? null;
 
@@ -270,9 +271,9 @@ function BookReviewContent() {
         <div className="grid grid-cols-[140px_1fr_auto] items-start gap-6">
           <div className="w-[140px]">
             <ContentCover
-              coverUrl={book.cover_url}
-              title={book.title}
-              subtitle={book.subtitle}
+              coverUrl={item.cover_url}
+              title={item.title}
+              subtitle={item.subtitle}
             />
           </div>
           <div>
@@ -280,12 +281,12 @@ function BookReviewContent() {
               {effectiveGenre}
             </span>
             <h1 className="font-serif text-[40px] font-[450] leading-[1.05] tracking-[-0.02em] text-fg-0">
-              {book.title}
+              {item.title}
             </h1>
-            <p className="mt-2 text-sm text-fg-2">by {book.subtitle}</p>
+            <p className="mt-2 text-sm text-fg-2">by {item.subtitle}</p>
             <div className="mt-4 flex items-center gap-3">
-              <StatusChip status={book.status} />
-              <ScoreBar score={book.score} width={72} />
+              <StatusChip status={item.status} />
+              <ScoreBar score={item.score} width={72} />
               {costCents !== null && costCents > 0 && (
                 <Chip variant="plain" dot={false}>
                   {dollars(costCents)} spent
@@ -311,12 +312,12 @@ function BookReviewContent() {
       )}
 
       <DossierEditor
-        itemId={book.id}
-        dossier={book.dossier}
+        itemId={item.id}
+        dossier={item.dossier}
         onSaved={refresh}
       />
 
-      {book.packages.length === 0 ? (
+      {item.packages.length === 0 ? (
         <Card className="text-center text-sm text-fg-2">
           <p className="mb-4">No content package yet.</p>
           <Button variant="primary" onClick={() => generatePackage()} disabled={generating}>
@@ -383,7 +384,7 @@ function BookReviewContent() {
                 published={published}
               />
               <RevisionHistory
-                packages={book.packages}
+                packages={item.packages}
                 activeId={active.id}
                 onSelect={setActiveId}
               />
@@ -474,31 +475,6 @@ function RenderStatus({ pkg }: { pkg: Package }) {
       {parts.join(" · ")}
     </p>
   );
-}
-
-function formatDuration(seconds: number): string {
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  const m = Math.floor(seconds / 60);
-  const rem = Math.round(seconds - m * 60);
-  return rem === 0 ? `${m}m` : `${m}m ${rem}s`;
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes}B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
-}
-
-function formatTimeAgo(iso: string): string {
-  const diffMs = Date.now() - new Date(iso).getTime();
-  const s = Math.floor(diffMs / 1000);
-  if (s < 60) return "just now";
-  const m = Math.floor(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
-  const d = Math.floor(h / 24);
-  return `${d}d ago`;
 }
 
 // ---------------------------------------------------------------------------
@@ -1369,7 +1345,7 @@ function DossierEditor({
       <div className="mb-3 flex items-start justify-between gap-3">
         <div>
           <div className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-fg-3">
-            Book dossier
+            Item dossier
           </div>
           <p className="mt-1 text-xs text-fg-3">
             Structured research threaded into every generation.
