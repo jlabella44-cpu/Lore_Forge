@@ -49,6 +49,9 @@ type Package = {
   regenerate_note: string | null;
   is_approved: boolean;
   created_at: string | null;
+  rendered_at: string | null;
+  rendered_duration_seconds: number | null;
+  rendered_size_bytes: number | null;
   needs_rerender: boolean;
 };
 
@@ -322,6 +325,8 @@ function BookReviewContent() {
         </Card>
       ) : (
         active && (
+          <>
+          <RenderStatus pkg={active} />
           <div className="grid grid-cols-1 gap-8 @max-[1100px]:grid-cols-1 lg:grid-cols-[1fr_320px]">
             <div className="min-w-0">
               <Tabs
@@ -384,6 +389,7 @@ function BookReviewContent() {
               />
             </aside>
           </div>
+          </>
         )
       )}
     </div>
@@ -437,6 +443,62 @@ function HeroActions({
       )}
     </div>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Render status — banner when re-render needed, subtle line when fresh
+// ---------------------------------------------------------------------------
+
+function RenderStatus({ pkg }: { pkg: Package }) {
+  if (!pkg.rendered_at) return null;
+
+  if (pkg.needs_rerender) {
+    return (
+      <div className="mb-6 rounded-lg border border-[oklch(82%_0.15_85/0.3)] bg-[oklch(82%_0.15_85/0.08)] p-4 text-sm text-[oklch(90%_0.13_85)]">
+        Needs re-render — narration has changed since the last render
+      </div>
+    );
+  }
+
+  const parts: string[] = [];
+  if (pkg.rendered_duration_seconds != null) {
+    parts.push(formatDuration(pkg.rendered_duration_seconds));
+  }
+  if (pkg.rendered_size_bytes != null) {
+    parts.push(formatBytes(pkg.rendered_size_bytes));
+  }
+  parts.push(`rendered ${formatTimeAgo(pkg.rendered_at)}`);
+
+  return (
+    <p className="mb-6 font-mono text-[11px] text-fg-3">
+      {parts.join(" · ")}
+    </p>
+  );
+}
+
+function formatDuration(seconds: number): string {
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const m = Math.floor(seconds / 60);
+  const rem = Math.round(seconds - m * 60);
+  return rem === 0 ? `${m}m` : `${m}m ${rem}s`;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function formatTimeAgo(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const s = Math.floor(diffMs / 1000);
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
 }
 
 // ---------------------------------------------------------------------------

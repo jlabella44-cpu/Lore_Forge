@@ -32,15 +32,6 @@ they land; don't let this turn into a design doc.
 
 ## Video pipeline — still to wire
 
-- **Render-metadata UI.** Backend now persists `rendered_at`,
-  `rendered_duration_seconds`, `rendered_size_bytes`, `rendered_narration_hash`
-  on `ContentPackage`, and `GET /books/{id}` returns a computed
-  `needs_rerender: bool`. The frontend doesn't consume any of this yet — the
-  book page should show a "Needs re-render — narration has changed since the
-  last render" banner when `needs_rerender` is true and `rendered_at` is not
-  null, plus a subtle "48s · 12MB · rendered 3h ago" line when fresh. Backend
-  deps are in place; this is a pure frontend task.
-
 - **Publish stubs.** `services/tiktok.py`, `services/youtube.py`, and
   `services/meta.py` all `raise NotImplementedError` on `upload(...)`. Each is
   externally blocked — TikTok app review, YouTube installed-app OAuth, and a
